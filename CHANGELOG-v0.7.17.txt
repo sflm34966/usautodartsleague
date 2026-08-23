@@ -1,0 +1,14 @@
+US AutoDarts League App v0.7.17
+
+Manager tournament server tools
+- Added Tournaments / Playoffs to Manager Tools.
+- Added Create Tournament to Manager Tools.
+- Managers can create the one active manager-created tournament from the APK.
+- Tournament name, date, and Eastern start time use the approved server flow.
+- Signup response counts and every active league member are shown.
+- Manager Add / Drop corrections are available until tournament play starts.
+- Generated manager-created tournament bracket/matches are visible in Manager Tools.
+- Early bracket generation and the 10-minute cutoff remain server-authoritative.
+- Player Tournament tab and announcement overlay remain unchanged.
+
+Requires USADL Server v0.8.9 or later for the remote manager tournament API.

@@ -1,0 +1,27 @@
+Client v0.7.17 manager-created tournament server contract
+
+PLAYER ROUTES
+GET /api/manager-tournament/current
+POST /api/manager-tournament/{id}/signup
+POST /api/manager-tournament/matches/{matchId}/evidence
+GET /api/announcements/pending
+POST /api/announcements/{id}/response
+
+AUTHENTICATED MANAGER ROUTES — Server v0.8.9+
+GET /api/admin/manager-tournament
+Returns {tournament:null} or the active manager-created tournament including signup_responses, joined_count, declined_count, no_response_count, eligible_count, entry_editable and matches/bracket.
+
+POST /api/admin/manager-tournament
+Body: {"name":"...","date":"YYYY-MM-DD","time":"HH:MM"}
+Creates the one active manager-created tournament and sends the Join Tournament / Don't Join signup announcement.
+
+POST /api/admin/manager-tournament/entry
+Body: {"player_id":123,"join":true|false}
+Manager Add / Drop correction. The server rebuilds an unplayed bracket when needed and locks the entry list after play starts.
+
+SERVER-AUTHORITATIVE TIMING
+- If every active league member responds, generate the bracket immediately.
+- Otherwise wait until 10 minutes before start.
+- At cutoff, unanswered players become Don't Join and the bracket is generated.
+
+Manager-created tournament results remain completely separate from regular-season and official tournament statistics.
