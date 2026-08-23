@@ -1,6 +1,6 @@
 workflows:
   usadl-android-apk:
-    name: US AutoDarts League Android APK
+    name: US AutoDarts League Standalone Android APK
     instance_type: mac_mini_m2
     max_build_duration: 120
     environment:
@@ -8,6 +8,7 @@ workflows:
       java: 17
       vars:
         EXPO_NO_TELEMETRY: "1"
+        NODE_ENV: "production"
     scripts:
       - name: Install npm dependencies
         script: |
@@ -21,12 +22,26 @@ workflows:
         script: |
           echo "sdk.dir=$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/android/local.properties"
 
-      - name: Build installable debug APK
+      - name: Build standalone release APK
         script: |
           cd android
           chmod +x gradlew
-          ./gradlew app:assembleDebug
+          ./gradlew app:assembleRelease --no-daemon
+
+      - name: Verify JavaScript bundle is packaged
+        script: |
+          APK_PATH=$(find android/app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          if [ -z "$APK_PATH" ]; then
+            echo "ERROR: Release APK was not created."
+            exit 1
+          fi
+          echo "Release APK: $APK_PATH"
+          unzip -l "$APK_PATH" | grep -q "assets/index.android.bundle" || {
+            echo "ERROR: index.android.bundle is missing from the APK."
+            exit 1
+          }
+          echo "Standalone JavaScript bundle verified inside APK."
 
     artifacts:
-      - android/app/build/outputs/apk/debug/*.apk
+      - android/app/build/outputs/apk/release/*.apk
       - android/app/build/outputs/logs/*.txt
