@@ -1,0 +1,27 @@
+US AutoDarts League Unified App v0.7.16
+
+MANAGER-CREATED TOURNAMENT PLAYER EXPERIENCE
+- Adds one active manager-created tournament link beneath the existing official Tournament section.
+- Official league tournaments, playoffs, regular-season matches, standings and statistics are untouched.
+- Adds Matches / Bracket / Rules tabs for the active manager-created tournament.
+- Tournament matches are single elimination, Best of 5, no draws, and never contribute league statistics.
+- A player participating in a tournament match gets the same result-evidence upload experience from that tournament match.
+- App expects the server to close tournament signup 10 minutes before start and generate the bracket automatically.
+
+ANNOUNCEMENT POPUPS
+- App checks for pending announcement popups on login/open, when returning to foreground, and about every 15 seconds while open.
+- Normal announcements show an OK button.
+- Announcements requiring feedback show only server-provided choice buttons.
+- Tournament signup announcements show JOIN TOURNAMENT / DON'T JOIN and close after the choice is saved.
+
+AWARD
+- Adds one reusable TOURNAMENT CHAMPION badge type for manager-created tournament wins.
+- The badge count represents total manager-created tournament wins, regardless of tournament name.
+
+SERVER ENDPOINTS EXPECTED
+- GET /api/manager-tournament/current
+- POST /api/manager-tournament/{id}/signup
+- POST /api/manager-tournament/matches/{matchId}/evidence
+- GET /api/announcements/pending
+- POST /api/announcements/{id}/response
+- /api/awards should expose managerTournamentChampion with its career count when earned.

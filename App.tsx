@@ -1,7 +1,7 @@
 import React,{useEffect,useRef,useState}from"react";
 import * as SecureStore from "expo-secure-store";
 import * as ImagePicker from "expo-image-picker";
-import{SafeAreaView,View,Text as RNText,StyleSheet,Pressable,ScrollView as RNScrollView,Animated,ImageBackground,TextInput,Image,Alert,BackHandler,Platform}from"react-native";
+import{SafeAreaView,View,Text as RNText,StyleSheet,Pressable,ScrollView as RNScrollView,Animated,ImageBackground,TextInput,Image,Alert,BackHandler,Platform,Modal,AppState}from"react-native";
 
 
 const API_BASE_URL=Platform.OS==="web"?String((globalThis as any)?.location?.origin||"https://api.usautodartsleague.com"):"https://api.usautodartsleague.com";
@@ -96,6 +96,7 @@ const bundledAwardCatalog=[
   {type:"goldCup",category:"Championship Trophies",name:"Gold Cup",detail:"Awarded to the Division Playoff Champion."},
   {type:"silverCup",category:"Championship Trophies",name:"Silver Cup",detail:"Awarded to the player who finishes #1 in their division during the regular season."},
   {type:"diamondCup",category:"Championship Trophies",name:"Diamond Cup",detail:"Awarded to a Tournament or overall League Champion."},
+  {type:"managerTournamentChampion",category:"Special Achievements",name:"Tournament Champion",detail:"Awarded for winning a manager-created tournament. The count shows total manager-created tournament wins."},
   {type:"most180s",category:"Performance Awards",name:"Most 180s",detail:"Season award for recording the most 180 scores."},
   {type:"highestAverage",category:"Performance Awards",name:"Highest 3-Dart Average",detail:"Season award for the league's highest 3-dart average."},
   {type:"highestCheckout",category:"Performance Awards",name:"Highest Checkout",detail:"Season award for the highest successful checkout."},
@@ -391,9 +392,13 @@ const[serverAwardCatalog,setServerAwardCatalog]=useState<any[]>(bundledAwardCata
 const[serverEarnedAwards,setServerEarnedAwards]=useState<any[]>([]);
 const[serverSeasonStats,setServerSeasonStats]=useState<any>({});
 const[serverCareerStats,setServerCareerStats]=useState<any>({});
+const[managerTournament,setManagerTournament]=useState<any>(null);
+const[managerTournamentTab,setManagerTournamentTab]=useState("Matches");
+const[announcementPopup,setAnnouncementPopup]=useState<any>(null);
+const[announcementBusy,setAnnouncementBusy]=useState(false);
 const tabRef=useRef(tab);tabRef.current=tab;
 const setTab=(next:string)=>{const current=tabRef.current;if(next===current)return;navBackRef.current.push(current);navForwardRef.current=[];setTabRaw(next)};
-const goBackTab=()=>{const current=tabRef.current;const submenu=["Settings","ProfileSetup","FontSize","Security","LeagueRules","TrophyCase","ModeratorServer","ManagerServer","Contact","PlayerStats","DivisionPicker"].includes(current);if(!submenu)return;const prev=navBackRef.current.pop();if(!prev)return;navForwardRef.current.push(current);setTabRaw(prev)};
+const goBackTab=()=>{const current=tabRef.current;const submenu=["Settings","ProfileSetup","FontSize","Security","LeagueRules","TrophyCase","ModeratorServer","ManagerServer","Contact","PlayerStats","DivisionPicker","ManagerTournament"].includes(current);if(!submenu)return;const prev=navBackRef.current.pop();if(!prev)return;navForwardRef.current.push(current);setTabRaw(prev)};
 const goForwardTab=()=>{const current=tabRef.current;const next=navForwardRef.current.pop();if(!next)return;navBackRef.current.push(current);setTabRaw(next)};
 useEffect(()=>{
   if(Platform.OS==="web")return;
@@ -401,7 +406,7 @@ useEffect(()=>{
     if(!signedIn)return false;
     const current=tabRef.current;
     if(current==="ManagerServer"||current==="ModeratorServer")return false;
-    const submenu=["Settings","ProfileSetup","FontSize","Security","LeagueRules","TrophyCase","Contact","PlayerStats","DivisionPicker"].includes(current);
+    const submenu=["Settings","ProfileSetup","FontSize","Security","LeagueRules","TrophyCase","Contact","PlayerStats","DivisionPicker","ManagerTournament"].includes(current);
     if(submenu)goBackTab();
     // Consume Android back even on top-level tabs so an edge swipe cannot close the APK.
     return true;
@@ -502,6 +507,23 @@ const refreshTournamentForSeason=async(seasonId:string,fallbackSource:any[]=serv
     setTournamentEndpointReady(false);
   }
 };
+const refreshManagerTournament=async()=>{
+  try{
+    const payload=await apiRequest("/api/manager-tournament/current",{method:"GET"});
+    const t=payload?.tournament??payload?.current??payload;
+    if(t&&typeof t==="object"&&Number(t?.id||0)>0)setManagerTournament(t);else setManagerTournament(null);
+  }catch(e:any){
+    if(Number(e?.status||0)===404)setManagerTournament(null);
+  }
+};
+const refreshAnnouncementPopups=async()=>{
+  if(announcementPopup||announcementBusy)return;
+  try{
+    const payload=await apiRequest("/api/announcements/pending",{method:"GET"});
+    const rows=Array.isArray(payload)?payload:Array.isArray(payload?.announcements)?payload.announcements:[];
+    if(rows.length)setAnnouncementPopup(rows[0]);
+  }catch{}
+};
 const refreshServerData=async()=>{
   try{
     await apiRequest("/health",{method:"GET"});setServerOnline(true);
@@ -515,11 +537,21 @@ const refreshServerData=async()=>{
     try{const cat=normalizeAwardCatalog(await apiRequest("/api/award-catalog"));if(cat.length){setServerAwardCatalog(cat);await storage.setItemAsync("league_award_catalog_cache",JSON.stringify(cat));}}catch{try{const cached=await storage.getItemAsync("league_award_catalog_cache");if(cached){const cat=JSON.parse(cached);if(Array.isArray(cat)&&cat.length)setServerAwardCatalog(cat)}}catch{}}
     const mapped:Record<string,any[]>={};const sid=String(current||seasons[0]?.id||"");for(const d of divs){try{const q=sid?`&season_id=${encodeURIComponent(sid)}`:"";const rows=await apiRequest(`/api/standings?division_id=${encodeURIComponent(String(d.id))}${q}`,{method:"GET"});if(Array.isArray(rows))mapped[d.name]=rows;}catch{}}setServerStandings(mapped);
     await refreshTournamentForSeason(sid,Array.isArray(matches)?matches:[]);
+    await refreshManagerTournament();
+    await refreshAnnouncementPopups();
   }catch{setServerOnline(false);}
 };
 useEffect(()=>{if(signedIn)refreshServerData();},[signedIn]);
 useEffect(()=>{if(signedIn&&selectedSeasonId){if(serverDivisions.length)refreshStandingsForSeason(selectedSeasonId);refreshTournamentForSeason(selectedSeasonId);}},[selectedSeasonId]);
 useEffect(()=>{if(signedIn&&(tab==="Home"||tab==="Stats"||tab==="PlayerStats")){refreshOwnStats(currentSeasonId||selectedSeasonId||0);}},[tab,signedIn,currentSeasonId]);
+useEffect(()=>{if(signedIn&&(tab==="Tournament"||tab==="ManagerTournament"))refreshManagerTournament();},[tab,signedIn]);
+useEffect(()=>{
+  if(!signedIn)return;
+  refreshAnnouncementPopups();
+  const timer=setInterval(refreshAnnouncementPopups,15000);
+  const sub=AppState.addEventListener("change",state=>{if(state==="active")refreshAnnouncementPopups();});
+  return()=>{clearInterval(timer);sub.remove();};
+},[signedIn,announcementPopup,announcementBusy]);
 
 const setGlobalFontScale=async(scale:number)=>{
   setFontScale(scale);
@@ -600,6 +632,47 @@ const pickMatchScreenshots=async(matchId:string)=>{
   }
 };
 
+const pickManagerTournamentScreenshots=async(matchId:string)=>{
+  if(matchUploadWorkingId)return;
+  const permission=await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if(!permission.granted){Alert.alert("Permission needed","Photo access is needed to upload AutoDarts tournament screenshots.");return;}
+  const result=await ImagePicker.launchImageLibraryAsync({mediaTypes:["images"],allowsMultipleSelection:true,selectionLimit:10,quality:1});
+  if(result.canceled||!result.assets?.length)return;
+  setMatchUploadWorkingId(`t-${matchId}`);
+  try{
+    const token=runtimeAuthToken||await storage.getItemAsync("league_session");
+    if(!token)throw new Error("You are not signed in.");
+    const form:any=new FormData();
+    for(let i=0;i<result.assets.length;i++){
+      const a:any=result.assets[i];const uri=String(a?.uri||"");const original=String(a?.fileName||a?.filename||`tournament-${matchId}-${i+1}.png`);
+      let type=String(a?.mimeType||a?.type||"");if(!type||!type.includes("/")){const lower=original.toLowerCase();type=lower.endsWith(".jpg")||lower.endsWith(".jpeg")?"image/jpeg":lower.endsWith(".webp")?"image/webp":"image/png";}
+      if(Platform.OS==="web"){const blob:any=await(await fetch(uri)).blob();form.append("files",blob,original);}else form.append("files",{uri,name:original,type} as any);
+    }
+    const response=await fetch(`${API_BASE_URL}/api/manager-tournament/matches/${encodeURIComponent(matchId)}/evidence`,{method:"POST",headers:{Accept:"application/json",Authorization:`Bearer ${token}`},body:form});
+    let data:any=null;try{data=await response.json();}catch{}
+    if(!response.ok)throw new Error(data?.message||data?.error||`Server returned HTTP ${response.status}`);
+    await refreshManagerTournament();
+    const received=Number(data?.received||result.assets.length);
+    Alert.alert("Server received result",`${received} AutoDarts screenshot${received===1?"":"s"} uploaded for this tournament match.`);
+  }catch(e:any){Alert.alert("Tournament result was NOT uploaded",String(e?.message||e||"Upload failed."));}
+  finally{setMatchUploadWorkingId("");}
+};
+const respondToAnnouncement=async(choice:string)=>{
+  if(!announcementPopup||announcementBusy)return;
+  setAnnouncementBusy(true);
+  try{
+    const id=String(announcementPopup?.id||"");
+    const kind=String(announcementPopup?.kind||announcementPopup?.type||"").toLowerCase();
+    const tournamentId=String(announcementPopup?.tournament_id||announcementPopup?.tournament?.id||"");
+    if((kind==="tournament_signup"||kind==="manager_tournament_signup")&&tournamentId){
+      await apiRequest(`/api/manager-tournament/${encodeURIComponent(tournamentId)}/signup`,{method:"POST",body:JSON.stringify({join:choice==="join"})});
+    }
+    if(id)await apiRequest(`/api/announcements/${encodeURIComponent(id)}/response`,{method:"POST",body:JSON.stringify({choice})});
+    setAnnouncementPopup(null);
+    await refreshManagerTournament();
+  }catch(e:any){Alert.alert("Response not saved",String(e?.message||e||"The server could not save your response."));}
+  finally{setAnnouncementBusy(false);}
+};
 const wrap=(node:any)=><FontScaleContext.Provider value={fontScale}>{node}</FontScaleContext.Provider>;
 if(showSplash)return wrap(<Splash onDone={()=>setShowSplash(false)}/>);
 if(!authReady)return wrap(<SafeAreaView style={s.safe}><AmericanFlagBackground/><View style={s.signInOverlay}><View style={s.authCheckCard}><Text style={s.signInTitle}>VERIFYING SAVED SIGN-IN</Text><Text style={s.signInSub}>Checking your saved credentials against the league server…</Text></View></View></SafeAreaView>);
@@ -627,8 +700,12 @@ else if(tab==="Tournament"){
 const seasonOptions=serverSeasons.map((x:any)=>({value:String(x.id),label:`${x.name} (${x.year})${Number(x.id)===currentSeasonId?" • Current":""}`}));
 const tournamentRows=serverTournamentMatches.filter((m:any)=>!selectedSeasonId||!m?.season_id||Number(m.season_id)===Number(selectedSeasonId));
 const groups:Record<string,any[]>={};for(const m of tournamentRows){const key=String(m?.division_name||m?.division||"League Tournament");(groups[key]||(groups[key]=[])).push(m);}
-const roundOrder=(m:any)=>{const r=String(m?.round_label||m?.round_name||m?.round||m?.stage||"").toLowerCase();if(r.includes("semi"))return 1;if(r.includes("quarter"))return 0;if(r.includes("final")||r.includes("championship"))return 2;return 1;};
-body=<ScrollView showsVerticalScrollIndicator={false}><Text style={s.title}>Tournament Brackets</Text><ChoiceDropdown label="Season" value={selectedSeasonId} options={seasonOptions} onChange={setSelectedSeasonId} placeholder="Current Season"/>{!tournamentEndpointReady?<View style={s.managerNotice}><Text style={s.managerNoticeTitle}>TOURNAMENT SERVER LINK PENDING</Text><Text style={s.managerNoticeText}>This page is already wired to the league server tournament endpoint. Until the next server update enables the full bracket feed, it can only show tournament matches already included in your personal match feed.</Text></View>:<View style={s.managerNotice}><Text style={s.managerNoticeTitle}>LIVE SERVER BRACKET</Text><Text style={s.managerNoticeText}>Tournament and division-playoff brackets are loaded from the league server. Schedule or bracket changes made on the server appear here automatically.</Text></View>}{Object.keys(groups).length?Object.entries(groups).map(([division,rows]:any)=><View key={division}><Text style={s.statsSection}>{String(division).toUpperCase()}</Text>{[...rows].sort((a:any,b:any)=>roundOrder(a)-roundOrder(b)||String(a?.scheduled_at||"").localeCompare(String(b?.scheduled_at||""))).map((m:any)=>{const done=isCompletedMatch(m);const p1=String(m?.player1_name||m?.player1||"TBD");const p2=String(m?.player2_name||m?.player2||"TBD");const score=done?`${m?.player1_legs??"–"} - ${m?.player2_legs??"–"}`:"VS";return <View key={String(m?.id||`${division}-${tournamentRoundLabel(m)}-${p1}-${p2}`)} style={s.matchCard}><View style={s.matchCardInfo}><Text style={s.matchDivision}>{tournamentRoundLabel(m).toUpperCase()}</Text><View style={s.matchPlayersLeft}><Text style={s.matchSelfName}>{p1}</Text><Text style={s.vsLarge}> {score} </Text><Text style={s.matchSelfName}>{p2}</Text></View><Text style={s.matchDateLeft}>{localMatchLabel(m,timeZone)}</Text><Text style={s.matchMetaLeft}>Best of {m?.best_of||5} • {done?"Completed":"Scheduled"} • Server bracket</Text></View></View>})}</View>):<View style={s.emptyStateCard}><Text style={s.emptyStateTitle}>NO TOURNAMENT BRACKET YET</Text><Text style={s.emptyStateText}>When the server creates division playoffs or another tournament for this season, the bracket will appear here automatically.</Text></View>}</ScrollView>;}
+const roundOrder=(m:any)=>{const r=String(m?.round_label||m?.round_name||m?.round||m?.stage||"").toLowerCase();if(r.includes("quarter"))return 0;if(r.includes("semi"))return 1;if(r.includes("final")||r.includes("championship"))return 2;return 1;};
+body=<ScrollView showsVerticalScrollIndicator={false}><Text style={s.title}>Tournament Brackets</Text><ChoiceDropdown label="Season" value={selectedSeasonId} options={seasonOptions} onChange={setSelectedSeasonId} placeholder="Current Season"/>{!tournamentEndpointReady?<View style={s.managerNotice}><Text style={s.managerNoticeTitle}>TOURNAMENT SERVER LINK PENDING</Text><Text style={s.managerNoticeText}>This section is reserved for the official league tournament and division playoff system. It remains completely separate from manager-created tournaments.</Text></View>:<View style={s.managerNotice}><Text style={s.managerNoticeTitle}>OFFICIAL LEAGUE TOURNAMENTS</Text><Text style={s.managerNoticeText}>Official tournament and division-playoff brackets are loaded from the league server and are not changed by manager-created tournaments.</Text></View>}{Object.keys(groups).length?Object.entries(groups).map(([division,rows]:any)=><View key={division}><Text style={s.statsSection}>{String(division).toUpperCase()}</Text>{[...rows].sort((a:any,b:any)=>roundOrder(a)-roundOrder(b)||String(a?.scheduled_at||"").localeCompare(String(b?.scheduled_at||""))).map((m:any)=>{const done=isCompletedMatch(m);const p1=String(m?.player1_name||m?.player1||"TBD");const p2=String(m?.player2_name||m?.player2||"TBD");const score=done?`${m?.player1_legs??"–"} - ${m?.player2_legs??"–"}`:"VS";return <View key={String(m?.id||`${division}-${tournamentRoundLabel(m)}-${p1}-${p2}`)} style={s.matchCard}><View style={s.matchCardInfo}><Text style={s.matchDivision}>{tournamentRoundLabel(m).toUpperCase()}</Text><View style={s.matchPlayersLeft}><Text style={s.matchSelfName}>{p1}</Text><Text style={s.vsLarge}> {score} </Text><Text style={s.matchSelfName}>{p2}</Text></View><Text style={s.matchDateLeft}>{localMatchLabel(m,timeZone)}</Text><Text style={s.matchMetaLeft}>Best of {m?.best_of||5} • {done?"Completed":"Scheduled"} • Official server bracket</Text></View></View>})}</View>):<View style={s.emptyStateCard}><Text style={s.emptyStateTitle}>NO OFFICIAL TOURNAMENT BRACKET YET</Text><Text style={s.emptyStateText}>Official division playoffs or league tournament brackets will appear here automatically.</Text></View>}{managerTournament?<View style={s.managerTournamentLinkSection}><Text style={s.statsSection}>CURRENT MANAGER-CREATED TOURNAMENT</Text><Pressable style={s.managerTournamentLink} onPress={()=>{setManagerTournamentTab("Matches");setTab("ManagerTournament")}}><View style={s.managerTournamentLinkIcon}><Text style={s.managerTournamentLinkIconText}>🏅</Text></View><View style={{flex:1}}><Text style={s.managerTournamentLinkName}>{String(managerTournament?.name||"Tournament")}</Text><Text style={s.managerTournamentLinkMeta}>{String(managerTournament?.start_label||managerTournament?.scheduled_label||managerTournament?.start_at||"")} • Single Elimination</Text></View><Text style={s.settingsArrow}>›</Text></Pressable></View>:null}</ScrollView>;}
+else if(tab==="ManagerTournament"&&managerTournament){
+const mt:any=managerTournament||{};const matches=Array.isArray(mt.matches)?mt.matches:[];const bracketMatches=Array.isArray(mt.bracket?.matches)?mt.bracket.matches:Array.isArray(mt.bracket)?mt.bracket:matches;const me=Number(currentPlayer?.id||0);const rounds:Record<string,any[]>={};for(const m of bracketMatches){const r=String(m?.round_label||m?.round_name||m?.round||"Round 1");(rounds[r]||(rounds[r]=[])).push(m);}const ruleRows=Array.isArray(mt.rules)&&mt.rules.length?mt.rules:["Single Elimination","Best of 5 Legs","No Draws","Current league match rules apply","Tournament results do not affect league statistics","Upload result evidence the same way as regular-season matches"];
+body=<ScrollView showsVerticalScrollIndicator={false}><View style={s.tournamentDetailHeader}><Pressable onPress={()=>setTab("Tournament")} hitSlop={10}><Text style={s.tournamentBack}>‹</Text></Pressable><View style={{flex:1}}><Text style={s.tournamentDetailTitle}>{String(mt.name||"Tournament")}</Text><Text style={s.tournamentDetailMeta}>{String(mt.start_label||mt.scheduled_label||mt.start_at||"")} • SINGLE ELIMINATION</Text></View></View><View style={s.tournamentTabs}>{["Matches","Bracket","Rules"].map(x=><Pressable key={x} style={[s.tournamentTabButton,managerTournamentTab===x&&s.tournamentTabButtonActive]} onPress={()=>setManagerTournamentTab(x)}><Text style={[s.tournamentTabText,managerTournamentTab===x&&s.tournamentTabTextActive]}>{x.toUpperCase()}</Text></Pressable>)}</View>{managerTournamentTab==="Matches"?<View><Text style={s.statsSection}>UPCOMING / ACTIVE MATCHES</Text>{matches.length?matches.map((m:any)=>{const p1=String(m?.player1_name||m?.player1||"TBD"),p2=String(m?.player2_name||m?.player2||"TBD");const mine=Number(m?.player1_id||0)===me||Number(m?.player2_id||0)===me;const done=isCompletedMatch(m);const key=String(m?.id||`${p1}-${p2}`);return <View key={key} style={s.matchCard}><View style={s.matchCardRow}><View style={s.matchCardInfo}><Text style={s.matchDivision}>{String(m?.round_label||m?.round_name||"TOURNAMENT MATCH").toUpperCase()}</Text><View style={s.matchPlayersLeft}><Text style={s.matchSelfName}>{p1}</Text><Text style={s.vsLarge}> {done?`${m?.player1_legs??"–"} - ${m?.player2_legs??"–"}`:"VS"} </Text><Text style={s.matchSelfName}>{p2}</Text></View><Text style={s.matchDateLeft}>{String(m?.scheduled_label||m?.scheduled_at||mt?.start_label||mt?.start_at||"")}</Text><Text style={s.matchMetaLeft}>Best of {m?.best_of||mt?.best_of||5} • {done?"Completed":"Single elimination"} • Does not affect league stats</Text></View>{mine&&!done?<Pressable style={[s.uploadResultsButton,matchUploadWorkingId===`t-${key}`&&{opacity:.55}]} disabled={!!matchUploadWorkingId} onPress={()=>pickManagerTournamentScreenshots(key)}><Text style={s.uploadResultsIcon}>{matchUploadWorkingId===`t-${key}`?"…":"⬆"}</Text><Text style={s.uploadResultsText}>{matchUploadWorkingId===`t-${key}`?"UPLOADING":"UPLOAD"}</Text><Text style={s.uploadResultsText}>RESULT</Text></Pressable>:null}</View></View>}):<View style={s.emptyStateCard}><Text style={s.emptyStateTitle}>BRACKET NOT GENERATED YET</Text><Text style={s.emptyStateText}>The server will create the bracket after signup closes 10 minutes before the tournament starts.</Text></View>}</View>:managerTournamentTab==="Bracket"?<View><Text style={s.statsSection}>LIVE BRACKET</Text>{Object.keys(rounds).length?<RNScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.bracketScroll}>{Object.entries(rounds).map(([round,rows]:any)=><View key={round} style={s.bracketColumn}><Text style={s.bracketRoundTitle}>{String(round).toUpperCase()}</Text>{rows.map((m:any,i:number)=><View key={String(m?.id||i)} style={s.bracketMatch}><Text style={s.bracketPlayer}>{String(m?.player1_name||m?.player1||"TBD")} {isCompletedMatch(m)?String(m?.player1_legs??""):""}</Text><View style={s.bracketDivider}/><Text style={s.bracketPlayer}>{String(m?.player2_name||m?.player2||"TBD")} {isCompletedMatch(m)?String(m?.player2_legs??""):""}</Text></View>)}</View>)}</RNScrollView>:<View style={s.emptyStateCard}><Text style={s.emptyStateTitle}>BRACKET NOT GENERATED YET</Text><Text style={s.emptyStateText}>Confirmed entrants will be placed into the single-elimination bracket automatically when signup closes.</Text></View>}</View>:<View><Text style={s.statsSection}>TOURNAMENT RULES</Text><View style={s.tournamentRulesCard}>{ruleRows.map((r:any,i:number)=><View key={i} style={s.tournamentRuleRow}><Text style={s.tournamentRuleCheck}>✓</Text><Text style={s.tournamentRuleText}>{String(r)}</Text></View>)}</View><View style={s.managerNotice}><Text style={s.managerNoticeTitle}>SEPARATE FROM LEAGUE STATISTICS</Text><Text style={s.managerNoticeText}>This manager-created tournament never changes regular-season standings, regular-season statistics, or official league tournament statistics.</Text></View></View>}</ScrollView>;}
+else if(tab==="ManagerTournament"){body=<ScrollView showsVerticalScrollIndicator={false}><Pressable onPress={()=>setTab("Tournament")}><Text style={s.backLink}>‹ BACK TO TOURNAMENTS</Text></Pressable><Text style={s.title}>Tournament</Text><View style={s.emptyStateCard}><Text style={s.emptyStateTitle}>NO ACTIVE MANAGER-CREATED TOURNAMENT</Text><Text style={s.emptyStateText}>When the manager creates the next tournament, its named link will appear under the Tournament tab.</Text></View></ScrollView>;}
 else if(tab==="PlayerStats"&&selectedPlayer){
 const live=playerStandingByName(selectedPlayer);
 const played=Number(live?.played??live?.matches_played??0);
@@ -672,7 +749,7 @@ else if(tab==="Settings")body=<ScrollView showsVerticalScrollIndicator={false}>
 <Pressable style={s.settingsRow} onPress={()=>setTab("TrophyCase")}><View><Text style={s.settingsTitle}>Trophies</Text><Text style={s.settingsSub}>Pictures and meanings for every official trophy and badge</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>
 {serverRole==="manager"?<Pressable style={[s.settingsRow,s.managerSettingsRow]} onPress={()=>setTab("ManagerServer")}><View style={{flex:1}}><Text style={s.settingsTitle}>Server</Text><Text style={s.settingsSub}>Full league management • read/write access to the Windows server</Text></View><View style={s.managerNewPill}><Text style={s.managerNewText}>MANAGER</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>:serverRole==="moderator"?<Pressable style={[s.settingsRow,s.managerSettingsRow]} onPress={()=>setTab("ModeratorServer")}><View style={{flex:1}}><Text style={s.settingsTitle}>Server</Text><Text style={s.settingsSub}>Add players, reset passwords, reschedule generated matches, and enter results</Text></View><View style={s.managerNewPill}><Text style={s.managerNewText}>MODERATOR</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>:null}
 <Pressable style={s.settingsRow} onPress={()=>setTab("Contact")}><View><Text style={s.settingsTitle}>Contact</Text><Text style={s.settingsSub}>League support and contact information</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>
-<Text style={[s.settingsSub,{textAlign:"center",marginTop:12,marginBottom:8}]}>{Platform.OS==="web"?"WEB v0.7.15":"APP v0.7.15"} • LIVE SERVER STATS</Text>
+<Text style={[s.settingsSub,{textAlign:"center",marginTop:12,marginBottom:8}]}>{Platform.OS==="web"?"WEB v0.7.16":"APP v0.7.16"} • LIVE SERVER STATS</Text>
 </ScrollView>;
 else if(tab==="ProfileSetup")body=<ScrollView showsVerticalScrollIndicator={false}>
 <Pressable onPress={()=>setTab("Settings")}><Text style={s.backLink}>‹ BACK TO SETTINGS</Text></Pressable>
@@ -713,7 +790,11 @@ else body=<ScrollView showsVerticalScrollIndicator={false}>
 <View style={s.previewStatRow}><View style={s.previewMini}><Text style={s.previewMiniValue}>{formatStatInt(serverSeasonStats["180s"])}</Text><Text style={s.previewMiniLabel}>180s</Text></View><View style={s.previewMini}><Text style={s.previewMiniValue}>{formatStatInt(serverSeasonStats.highest_checkout)}</Text><Text style={s.previewMiniLabel}>HIGH CO</Text></View><View style={s.previewMini}><Text style={s.previewMiniValue}>{formatStatInt(serverSeasonStats.best_leg)}</Text><Text style={s.previewMiniLabel}>BEST LEG</Text></View></View>
 <View style={s.previewCard}><Text style={s.previewCardLabel}>RECENT FORM</Text>{homeCompletedMatches.length?<View style={s.form}>{homeCompletedMatches.slice(0,5).map((m:any,i:number)=>{const x=matchResultForMe(m)||"•";return <View key={String(m.id||i)} style={[s.badge,x==="L"&&{backgroundColor:"#ef3d3d"},x==="•"&&{backgroundColor:"#566474"}]}><Text style={s.bold}>{x}</Text></View>})}</View>:<Text style={s.emptyStateText}>No completed server matches yet.</Text>}</View>
 </ScrollView>;
-return wrap(<SwipeNavigationProvider enabled={tab!=="ManagerServer"&&tab!=="ModeratorServer"} onSwipeRight={goBackTab} onSwipeLeft={goForwardTab}><SwipeTouchSurface style={{flex:1}}><SafeAreaView style={s.safe}><AmericanFlagBackground/><View style={s.appOverlay}><View style={s.header}><Text style={s.bold}>US AUTODARTS LEAGUE</Text>{tab==="Home"?<Pressable hitSlop={12} style={s.gearButton} onPress={()=>setTab("Settings")} accessibilityRole="button" accessibilityLabel="Open settings"><Text style={s.gearIcon}>⚙</Text></Pressable>:<View style={s.headerSpacer}/>}</View><View style={s.content}>{body}</View><View style={s.nav}>{[["Home","⌂"],["Matches","🎯"],["Tournament","🏅"],["Standings","🏆"],["Stats","📊"]].map(x=><Pressable key={x[0]} style={s.navI} onPress={()=>setTab(x[0])}><Text style={s.navIcon}>{x[1]}</Text><Text style={[s.muted,tab===x[0]&&{color:"#ef3d3d"}]}>{x[0]}</Text></Pressable>)}</View></View></SafeAreaView></SwipeTouchSurface></SwipeNavigationProvider>)}
+const popupKind=String(announcementPopup?.kind||announcementPopup?.type||"").toLowerCase();
+const popupIsTournament=popupKind==="tournament_signup"||popupKind==="manager_tournament_signup";
+const rawChoices=Array.isArray(announcementPopup?.response_options)?announcementPopup.response_options:Array.isArray(announcementPopup?.choices)?announcementPopup.choices:[];
+const popupChoices=popupIsTournament?[{value:"join",label:"JOIN TOURNAMENT",tone:"join"},{value:"do_not_join",label:"DON'T JOIN",tone:"decline"}]:rawChoices.length?rawChoices.map((x:any)=>typeof x==="string"?{value:x,label:x,tone:"choice"}:{value:String(x?.value??x?.id??x?.label??""),label:String(x?.label??x?.text??x?.value??"CHOICE"),tone:"choice"}):[{value:"ok",label:"OK",tone:"ok"}];
+return wrap(<><SwipeNavigationProvider enabled={tab!=="ManagerServer"&&tab!=="ModeratorServer"} onSwipeRight={goBackTab} onSwipeLeft={goForwardTab}><SwipeTouchSurface style={{flex:1}}><SafeAreaView style={s.safe}><AmericanFlagBackground/><View style={s.appOverlay}><View style={s.header}><Text style={s.bold}>US AUTODARTS LEAGUE</Text>{tab==="Home"?<Pressable hitSlop={12} style={s.gearButton} onPress={()=>setTab("Settings")} accessibilityRole="button" accessibilityLabel="Open settings"><Text style={s.gearIcon}>⚙</Text></Pressable>:<View style={s.headerSpacer}/>}</View><View style={s.content}>{body}</View><View style={s.nav}>{[["Home","⌂"],["Matches","🎯"],["Tournament","🏅"],["Standings","🏆"],["Stats","📊"]].map(x=><Pressable key={x[0]} style={s.navI} onPress={()=>setTab(x[0])}><Text style={s.navIcon}>{x[1]}</Text><Text style={[s.muted,tab===x[0]&&{color:"#ef3d3d"}]}>{x[0]}</Text></Pressable>)}</View></View></SafeAreaView></SwipeTouchSurface></SwipeNavigationProvider><Modal visible={!!announcementPopup} transparent animationType="fade" statusBarTranslucent onRequestClose={()=>{}}><View style={s.announcementModalShade}><View style={s.announcementModalCard}><View style={s.announcementModalIcon}><Text style={s.announcementModalIconText}>{popupIsTournament?"🏆":rawChoices.length?"?":"📣"}</Text></View><Text style={s.announcementModalKicker}>{popupIsTournament?"TOURNAMENT ANNOUNCEMENT":"ANNOUNCEMENT"}</Text><Text style={s.announcementModalTitle}>{String(announcementPopup?.title||announcementPopup?.tournament_name||"League Announcement")}</Text><Text style={s.announcementModalBody}>{String(announcementPopup?.body||announcementPopup?.message||"")}</Text>{popupIsTournament?<View style={s.announcementTournamentInfo}><Text style={s.announcementTournamentInfoText}>{String(announcementPopup?.tournament_date_label||announcementPopup?.start_label||"")}</Text><Text style={s.announcementTournamentInfoText}>Single Elimination • Best of 5 • No Draws</Text><Text style={s.announcementDeadline}>Signup closes 10 minutes before tournament start.</Text></View>:null}<View style={s.announcementChoiceStack}>{popupChoices.map((c:any)=><Pressable key={c.value} disabled={announcementBusy} onPress={()=>respondToAnnouncement(c.value)} style={[s.announcementChoice,c.tone==="join"&&s.announcementJoin,c.tone==="decline"&&s.announcementDecline,c.tone==="ok"&&s.announcementOkay,announcementBusy&&{opacity:.55}]}><Text style={s.announcementChoiceText}>{announcementBusy?"SAVING…":c.label}</Text></Pressable>)}</View></View></View></Modal></>)}
 
 
 function PlayerNameWithAwards({name,onPress,compact=false}:{name:string;onPress:()=>void;compact?:boolean}){
@@ -795,6 +876,7 @@ function awardImageSource(type:string){
   if(type==="goldCup")return require("./assets/award-gold-cup.png");
   if(type==="silverCup")return require("./assets/award-silver-cup.png");
   if(type==="diamondCup")return require("./assets/award-diamond-cup.png");
+  if(type==="managerTournamentChampion")return require("./assets/award-tournament-champion.png");
   if(type==="most180s")return require("./assets/award-most-180s.png");
   if(type==="highestAverage")return require("./assets/award-highest-average.png");
   if(type==="highestCheckout")return require("./assets/award-highest-checkout.png");
@@ -1205,6 +1287,47 @@ rulesAuthorityIcon:{color:"#f2c94c",fontSize:15,marginRight:8},
 rulesAuthorityTitle:{color:"#f2c94c",fontSize:10,fontWeight:"900",letterSpacing:.8},
 rulesAuthorityText:{color:"#c7b98b",fontSize:9.5,lineHeight:15},
 
+managerTournamentLinkSection:{marginTop:14,paddingTop:4,borderTopWidth:1,borderTopColor:"rgba(255,255,255,.12)"},
+managerTournamentLink:{backgroundColor:"rgba(2,15,35,.92)",borderWidth:1.5,borderColor:"#9b5cff",borderRadius:14,padding:13,flexDirection:"row",alignItems:"center",marginBottom:10},
+managerTournamentLinkIcon:{width:42,height:42,borderRadius:21,backgroundColor:"rgba(155,92,255,.18)",borderWidth:1,borderColor:"#9b5cff",alignItems:"center",justifyContent:"center",marginRight:10},
+managerTournamentLinkIconText:{fontSize:21},
+managerTournamentLinkName:{color:"#fff",fontSize:15,fontWeight:"900"},
+managerTournamentLinkMeta:{color:"#a9b6c5",fontSize:9.5,marginTop:3},
+tournamentDetailHeader:{flexDirection:"row",alignItems:"center",marginBottom:10},
+tournamentBack:{color:"#fff",fontSize:38,lineHeight:40,fontWeight:"300",marginRight:8},
+tournamentDetailTitle:{color:"#fff",fontSize:20,fontWeight:"900"},
+tournamentDetailMeta:{color:"#9b5cff",fontSize:9,fontWeight:"800",marginTop:3,letterSpacing:.4},
+tournamentTabs:{flexDirection:"row",borderBottomWidth:1,borderBottomColor:"rgba(255,255,255,.16)",marginBottom:12},
+tournamentTabButton:{flex:1,alignItems:"center",paddingVertical:10,borderBottomWidth:3,borderBottomColor:"transparent"},
+tournamentTabButtonActive:{borderBottomColor:"#9b5cff"},
+tournamentTabText:{color:"#8795a5",fontSize:10,fontWeight:"900"},
+tournamentTabTextActive:{color:"#fff"},
+bracketScroll:{paddingBottom:10,paddingRight:16,gap:10},
+bracketColumn:{width:185,backgroundColor:"rgba(2,15,35,.84)",borderWidth:1,borderColor:"rgba(155,92,255,.32)",borderRadius:13,padding:10},
+bracketRoundTitle:{color:"#9b5cff",fontSize:10,fontWeight:"900",letterSpacing:.8,marginBottom:8},
+bracketMatch:{backgroundColor:"rgba(4,9,17,.9)",borderWidth:1,borderColor:"rgba(255,255,255,.14)",borderRadius:9,marginBottom:9,overflow:"hidden"},
+bracketPlayer:{color:"#fff",fontSize:10,fontWeight:"800",paddingVertical:8,paddingHorizontal:8},
+bracketDivider:{height:1,backgroundColor:"rgba(255,255,255,.12)"},
+tournamentRulesCard:{backgroundColor:"rgba(2,15,35,.9)",borderWidth:1,borderColor:"rgba(155,92,255,.42)",borderRadius:14,padding:13,marginBottom:10},
+tournamentRuleRow:{flexDirection:"row",alignItems:"flex-start",marginBottom:10},
+tournamentRuleCheck:{color:"#39d353",fontSize:13,fontWeight:"900",width:22},
+tournamentRuleText:{flex:1,color:"#e3e9ef",fontSize:10.5,lineHeight:16,fontWeight:"700"},
+announcementModalShade:{flex:1,backgroundColor:"rgba(0,0,0,.76)",alignItems:"center",justifyContent:"center",padding:22},
+announcementModalCard:{width:"100%",maxWidth:430,backgroundColor:"rgba(4,10,20,.98)",borderWidth:1.5,borderColor:"#9b5cff",borderRadius:18,padding:20,alignItems:"center",shadowColor:"#000",shadowOpacity:.55,shadowRadius:18,elevation:16},
+announcementModalIcon:{width:58,height:58,borderRadius:29,backgroundColor:"#8b45e6",alignItems:"center",justifyContent:"center",marginTop:-48,marginBottom:10,borderWidth:2,borderColor:"rgba(255,255,255,.45)"},
+announcementModalIconText:{fontSize:27},
+announcementModalKicker:{color:"#b06cff",fontSize:9,fontWeight:"900",letterSpacing:1.3,marginBottom:5},
+announcementModalTitle:{color:"#fff",fontSize:20,fontWeight:"900",textAlign:"center",marginBottom:9},
+announcementModalBody:{color:"#d7e0e8",fontSize:12,lineHeight:18,textAlign:"center",marginBottom:12},
+announcementTournamentInfo:{width:"100%",backgroundColor:"rgba(155,92,255,.09)",borderWidth:1,borderColor:"rgba(155,92,255,.28)",borderRadius:11,padding:10,marginBottom:10},
+announcementTournamentInfoText:{color:"#e7e9ef",fontSize:10.5,textAlign:"center",fontWeight:"700",marginBottom:3},
+announcementDeadline:{color:"#f2c94c",fontSize:9.5,textAlign:"center",fontWeight:"900",marginTop:4},
+announcementChoiceStack:{width:"100%",gap:8,marginTop:4},
+announcementChoice:{minHeight:44,borderRadius:10,backgroundColor:"#315fe8",alignItems:"center",justifyContent:"center",paddingHorizontal:12},
+announcementJoin:{backgroundColor:"#22963a"},
+announcementDecline:{backgroundColor:"#d93838"},
+announcementOkay:{backgroundColor:"#8b45e6"},
+announcementChoiceText:{color:"#fff",fontSize:11,fontWeight:"900",letterSpacing:.4},
 trophyCasePage:{paddingBottom:28},
 trophyHero:{backgroundColor:"rgba(2,8,16,.96)",borderWidth:1,borderColor:"rgba(204,154,45,.64)",borderRadius:18,padding:18,marginBottom:16},
 trophyKicker:{color:"#e2aa33",fontSize:10,fontWeight:"900",letterSpacing:2.1},

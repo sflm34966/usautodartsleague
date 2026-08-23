@@ -1,0 +1,22 @@
+App v0.7.16 server contract for the separate manager-created tournament system.
+
+Only ONE active manager-created tournament exists at a time. This system must use separate storage from regular season and official league tournaments.
+
+GET /api/manager-tournament/current
+Return null/no tournament, or an object with: id, name, start_at/start_label, signup_cutoff, best_of (5), status, matches[], bracket, rules[].
+Each match should include id, round_label, player1_id/name, player2_id/name, scheduled_at/label, best_of, status, scores/evidence_count when available.
+
+POST /api/manager-tournament/{id}/signup
+Body: {"join":true|false}. Signup closes server-side exactly 10 minutes before start. No response at cutoff becomes Don't Join.
+
+POST /api/manager-tournament/matches/{matchId}/evidence
+Multipart field: files. Process through the same screenshot/OCR approval workflow but do NOT import any tournament statistics into league/career statistics. Only the match winner/result advances the bracket.
+
+GET /api/announcements/pending
+Return only announcements the signed-in player still needs to acknowledge/respond to.
+Fields: id, kind/type, title, body/message, response_options/choices. Tournament signup announcement also includes tournament_id, tournament_name and start/deadline display fields.
+
+POST /api/announcements/{id}/response
+Body: {"choice":"ok"|<choice>|"join"|"do_not_join"}. Store response per player so it is not shown again.
+
+Award type: managerTournamentChampion. One reusable TOURNAMENT CHAMPION badge with count = total manager-created tournament wins.
