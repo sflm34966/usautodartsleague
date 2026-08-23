@@ -1,0 +1,20 @@
+US AutoDarts League Tournament Bracket API Contract
+Target client: Android/Web v0.7.10+
+
+Preferred endpoint:
+GET /api/tournaments?season_id=<season_id>
+Authorization: any signed-in player, moderator, or manager.
+
+The endpoint should return the full tournament/division-playoff bracket for the requested season, not only the signed-in player's matches.
+
+Accepted response shapes already supported by the clients:
+1. A JSON array of match objects.
+2. {"matches":[...]}
+3. {"tournament_matches":[...]}
+4. {"playoff_matches":[...]}
+5. {"brackets":[{"division_name":"Division 1","matches":[...]}]}
+
+Recommended match fields:
+id, season_id, division_id, division_name, stage, round_label, player1_id, player1_name, player2_id, player2_name, player1_legs, player2_legs, best_of, status, scheduled_at, scheduled_local_label.
+
+The server remains authoritative. Bracket creation, seeding, advancement, date/time changes and results are all performed/stored by the server. The app and website are display clients only for this public bracket page.

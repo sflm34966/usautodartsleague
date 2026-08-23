@@ -1,0 +1,16 @@
+US AutoDarts League Unified App v0.7.10
+
+Everything from v0.7.9 remains in place and is aligned with the current Server Manager v0.6.5 rule feed.
+
+Swipe navigation fix:
+- Preserves separate Back and Forward navigation history stacks.
+- Swipe right in an app submenu goes to the previous screen.
+- After swiping back, swipe left returns to the screen that was just left.
+- Horizontal gestures are now captured before nested ScrollViews consume them.
+- Vertical scrolling remains available because the responder only captures predominantly horizontal movement.
+- Manager and Moderator internal server menus use the same corrected gesture capture.
+- Reduced the completed swipe threshold slightly to improve recognition without triggering on normal taps.
+- Explicitly blocks the Android native child responder only after a horizontal swipe has been recognized.
+- Updated the bundled offline rule fallback from the obsolete 15-rule copy to the authoritative 30-rule v1.0 Draft; live server rules remain the source of truth.
+
+No league logic, server authority, award artwork, match rules, standings logic, or role permissions were changed in this patch.

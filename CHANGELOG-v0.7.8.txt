@@ -1,0 +1,16 @@
+US AutoDarts League Unified App v0.7.8
+
+- Updated for Server Manager v0.6.0 neutral Player 1 / Player 2 match model.
+- Removed all Home/Away match concepts from app displays and manager/moderator controls.
+- Manager cannot create matches; can edit/reschedule generated matches and manage results.
+- Moderator cannot create matches; can reschedule generated matches and enter results.
+- Added Manager Season Setup with create/edit/delete/generate/playoff controls.
+- Added season selection to player Matches and Standings.
+- Match times use server local labels for players; manager scheduling is Eastern Time.
+- Rules page reads /api/rules and caches last successful copy.
+- Trophy page reads earned awards from /api/awards and is ready for server catalog/artwork via /api/award-catalog, with current bundled artwork as fallback.
+- Removed Relegation Avoided and Multiple Division Winner from fallback catalog.
+- Win Streak description = 5 consecutive league match wins.
+- Added right-swipe Back / left-swipe Forward navigation for submenus, plus manager/moderator internal menus.
+- Converted fixed-choice fields to dropdowns where server values are known.
+- Kept existing award count badge appearance/placement unchanged.

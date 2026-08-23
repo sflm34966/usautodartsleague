@@ -1,0 +1,1212 @@
+import React,{useEffect,useRef,useState}from"react";
+import * as SecureStore from "expo-secure-store";
+import * as ImagePicker from "expo-image-picker";
+import{SafeAreaView,View,Text as RNText,StyleSheet,Pressable,ScrollView,Animated,ImageBackground,TextInput,Image,Alert,PanResponder}from"react-native";
+
+
+const API_BASE_URL="https://api.usautodartsleague.com";
+let runtimeAuthToken:string|null=null;
+
+async function apiRequest(path:string,options:any={}){
+  const token=runtimeAuthToken||await SecureStore.getItemAsync("league_session");
+  const headers:any={"Accept":"application/json","Content-Type":"application/json",...(options.headers||{})};
+  if(token)headers.Authorization=`Bearer ${token}`;
+  const controller=new AbortController();
+  const timeout=setTimeout(()=>controller.abort(),8000);
+  try{
+    const response=await fetch(`${API_BASE_URL}${path}`,{...options,headers,signal:controller.signal});
+    let data:any=null;
+    try{data=await response.json();}catch{}
+    if(!response.ok){
+      const message=data?.message||data?.error||`Server returned HTTP ${response.status}`;
+      const err:any=new Error(message);
+      err.status=response.status;
+      err.serverData=data;
+      throw err;
+    }
+    return data;
+  }finally{clearTimeout(timeout);}
+}
+
+const FontScaleContext=React.createContext(1);
+function Text(props:any){
+  const scale=React.useContext(FontScaleContext);
+  const flat=StyleSheet.flatten(props.style)||{};
+  const baseSize=flat.fontSize??14;
+  const baseLine=flat.lineHeight;
+  return <RNText {...props} style={[props.style,{fontSize:baseSize*scale},baseLine?{lineHeight:baseLine*scale}:null]}/>;
+}
+const standingsByDivision:any={};
+const bundledAwardCatalog=[
+  {type:"goldCup",category:"Championship Trophies",name:"Gold Cup",detail:"Awarded to the Division Playoff Champion."},
+  {type:"silverCup",category:"Championship Trophies",name:"Silver Cup",detail:"Awarded to the player who finishes #1 in their division during the regular season."},
+  {type:"diamondCup",category:"Championship Trophies",name:"Diamond Cup",detail:"Awarded to a Tournament or overall League Champion."},
+  {type:"most180s",category:"Performance Awards",name:"Most 180s",detail:"Season award for recording the most 180 scores."},
+  {type:"highestAverage",category:"Performance Awards",name:"Highest 3-Dart Average",detail:"Season award for the league's highest 3-dart average."},
+  {type:"highestCheckout",category:"Performance Awards",name:"Highest Checkout",detail:"Season award for the highest successful checkout."},
+  {type:"bestCheckoutPct",category:"Performance Awards",name:"Best Checkout Percentage",detail:"Season award for the best checkout success percentage."},
+  {type:"bestLeg",category:"Performance Awards",name:"Best Leg",detail:"Season award for the best single leg, measured by the fewest darts used."},
+  {type:"mostWins",category:"Performance Awards",name:"Most Match Wins",detail:"Season award for recording the most match wins."},
+  {type:"nineDart",category:"Special Achievements",name:"9-Dart Leg",detail:"Complete a leg in exactly 9 darts."},
+  {type:"twelveDart",category:"Special Achievements",name:"12-Dart Leg",detail:"Complete a leg in 12 darts or fewer."},
+  {type:"fifteenDart",category:"Special Achievements",name:"15-Dart Leg",detail:"Complete a leg in 15 darts or fewer."},
+  {type:"checkout170",category:"Special Achievements",name:"170 Checkout",detail:"Successfully finish a leg with a 170 checkout."},
+  {type:"checkout100Plus",category:"Special Achievements",name:"100+ Checkout",detail:"Successfully finish a leg with a checkout of 100 or higher."},
+  {type:"first180",category:"Special Achievements",name:"First 180",detail:"Record your first league 180."},
+  {type:"career180_50",category:"Special Achievements",name:"50 Career 180s",detail:"Reach 50 recorded league 180s in your career."},
+  {type:"career180_100",category:"Special Achievements",name:"100 Career 180s",detail:"Reach 100 recorded league 180s in your career."},
+  {type:"winStreak",category:"Special Achievements",name:"Win Streak",detail:"Win 5 consecutive league matches."},
+  {type:"promotion",category:"Special Achievements",name:"Promotion Earned",detail:"Earn promotion to a higher division."},
+  {type:"fiveSeasons",category:"Special Achievements",name:"5 Seasons Played",detail:"Complete 5 league seasons."},
+  {type:"tenSeasons",category:"Special Achievements",name:"10 Seasons Played",detail:"Complete 10 league seasons."},
+  {type:"matches100",category:"Special Achievements",name:"100 Matches Played",detail:"Play 100 recorded league matches."},
+  {type:"matches250",category:"Special Achievements",name:"250 Matches Played",detail:"Play 250 recorded league matches."},
+  {type:"perfectSeason",category:"Special Achievements",name:"Perfect Season",detail:"Complete a season with a perfect match-win record."},
+  {type:"undefeatedSeason",category:"Special Achievements",name:"Undefeated Season",detail:"Complete a season without a match loss."}
+];
+
+const playerAwards:any={};
+const playerStats:any={};
+
+const leagueRules=[
+  {n:"01",title:"League Structure",icon:"◆",items:[
+    "Maximum 12 players per division.",
+    "Standard format is a single round robin.",
+    "Administration may use a double round robin for smaller divisions.",
+    "League administration controls divisions, schedules, season configuration and placement."
+  ]},
+  {n:"02",title:"Regular-Season Match Format",icon:"🎯",items:[
+    "501 Double Out.",
+    "Best of 5 legs — first player to 3 legs wins.",
+    "Valid match scores are 3–0, 3–1 or 3–2.",
+    "Every match must have a winner; ties are not permitted.",
+    "Bull-off determines who starts the first leg.",
+    "Players alternate who starts each following leg."
+  ]},
+  {n:"03",title:"League Points",icon:"★",items:[
+    "Match win: 3 league points.",
+    "Match loss: 0 league points."
+  ]},
+  {n:"04",title:"Standings & Tiebreakers",icon:"▤",items:[
+    "Standings track Played, Wins, Losses, Leg Difference and Points.",
+    "Tiebreaker 1: Leg Difference.",
+    "Tiebreaker 2: Legs Won.",
+    "Tiebreaker 3: Head-to-Head result.",
+    "Tiebreaker 4: 3-Dart Average.",
+    "If still tied, administration may require a tiebreak match."
+  ]},
+  {n:"05",title:"Weekly Scheduling",icon:"◷",items:[
+    "The league week runs Monday through Sunday.",
+    "Matches should normally be completed by Sunday at 11:59 PM Eastern.",
+    "Discord is the official league scheduling and communication platform.",
+    "Players arrange their match time with each other and may mutually reschedule within the same league week.",
+    "Extensions require administrator approval.",
+    "Matches may be played early when appropriate."
+  ]},
+  {n:"06",title:"No-Shows & Forfeits",icon:"!",items:[
+    "Players receive a 15-minute grace period for a scheduled match.",
+    "A regular-season forfeit is recorded as a 3–0 result.",
+    "The player receiving the forfeit win receives 3 league points.",
+    "If neither player makes a reasonable attempt to schedule or play the match, neither player receives a forfeit win."
+  ]},
+  {n:"07",title:"Match Results",icon:"✓",items:[
+    "The winner is responsible for submitting the match result.",
+    "An AutoDarts results screenshot must accompany the submission.",
+    "The required AutoDarts results screenshot must be captured on the PC running AutoDarts; a phone photo or screenshot from another device is not accepted.",
+    "Submitted results will be validated and stored by the league server when the live backend is connected.",
+    "Players have a 24-hour dispute window after a result is submitted.",
+    "Administration may correct a result when evidence shows a correction is required."
+  ]},
+  {n:"08",title:"Technical Problems",icon:"⚙",items:[
+    "If a technical problem occurs, players should pause the match and attempt to resolve it.",
+    "Up to approximately 15 minutes may be allowed for troubleshooting.",
+    "The match should resume or be completed within the league deadline whenever possible.",
+    "Administration handles unresolved technical disputes."
+  ]},
+  {n:"09",title:"Player Withdrawals",icon:"↩",items:[
+    "If a player withdraws before completing 50% of scheduled matches, their previous results are voided.",
+    "If a player withdraws after completing 50% or more of scheduled matches, completed results remain.",
+    "Remaining regular-season matches are recorded as 3–0 forfeits for the scheduled opponents."
+  ]},
+  {n:"10",title:"Division Playoffs",icon:"🏆",items:[
+    "The top 4 players from each division qualify for the division playoffs.",
+    "Semifinal 1: #1 seed vs #4 seed.",
+    "Semifinal 2: #2 seed vs #3 seed.",
+    "Semifinals are Best of 7 legs.",
+    "The Division Championship is played between the semifinal winners and is Best of 9 legs.",
+    "Final regular-season standings determine playoff seeding."
+  ]},
+  {n:"11",title:"Promotion & Relegation",icon:"↕",items:[
+    "The top two players are promoted where promotion applies.",
+    "The bottom two players are relegated where relegation applies.",
+    "Movement between divisions is determined from the final regular-season standings."
+  ]},
+  {n:"12",title:"Player Eligibility",icon:"◉",items:[
+    "A working AutoDarts setup is required.",
+    "A reliable internet connection is required.",
+    "Players must have an AutoDarts account or username.",
+    "The username selected for the US AutoDarts League must exactly match the player's AutoDarts username.",
+    "League Discord membership is required.",
+    "Players must be U.S. residents.",
+    "Players must compete under their own account; substitutes are not permitted."
+  ]},
+  {n:"13",title:"Player Conduct",icon:"⚖",items:[
+    "Harassment or abusive behavior is not permitted.",
+    "Cheating or intentional manipulation of match results is not permitted.",
+    "Unauthorized substitutes are not permitted.",
+    "Players are expected to communicate and schedule matches in good faith.",
+    "Violations may result in warnings, forfeits, suspensions, removal from the league or other league penalties."
+  ]},
+  {n:"14",title:"League Statistics",icon:"▥",items:[
+    "Wins and losses.",
+    "League points.",
+    "Legs won, legs lost and leg difference.",
+    "3-Dart Average and First-9 Average where available.",
+    "Checkout percentage and highest checkout.",
+    "Scoring milestones including 100+, 140+, 170+ and 180s.",
+    "Win streaks and other season and career statistics."
+  ]},
+  {n:"15",title:"League Administration",icon:"★",items:[
+    "Administration controls divisions, schedules, playoff setup, disputes, forfeits, withdrawals, penalties and official corrections.",
+    "League rules will normally be changed between seasons.",
+    "Administration may make necessary emergency rulings during a season to protect league fairness and operation.",
+    "When the permanent server is connected, the server will be the authoritative source for published league rules."
+  ]}
+];
+
+function RuleCard({rule}:{rule:any}){
+  const[open,setOpen]=useState(false);
+  return <View style={s.ruleCard}>
+    <Pressable style={s.ruleCardHeader} onPress={()=>setOpen(!open)} accessibilityRole="button" accessibilityLabel={`${rule.title}. ${open?"Collapse":"Expand"} rules`}>
+      <View style={s.ruleNumber}><Text style={s.ruleNumberText}>{rule.n}</Text></View>
+      <View style={s.ruleHeaderCopy}>
+        <Text style={s.ruleEyebrow}>{rule.icon}  OFFICIAL RULE</Text>
+        <Text style={s.ruleTitle}>{rule.title}</Text>
+      </View>
+      <Text style={s.ruleChevron}>{open?"−":"+"}</Text>
+    </Pressable>
+    {open?<View style={s.ruleBody}>
+      {rule.items.map((item:string,i:number)=><View key={i} style={s.ruleBulletRow}>
+        <View style={s.ruleBullet}/>
+        <Text style={s.ruleBulletText}>{item}</Text>
+      </View>)}
+    </View>:null}
+  </View>
+}
+
+const US_TIME_ZONES=[
+  {value:"America/New_York",label:"Eastern"},
+  {value:"America/Chicago",label:"Central"},
+  {value:"America/Denver",label:"Mountain"},
+  {value:"America/Los_Angeles",label:"Pacific"},
+  {value:"America/Anchorage",label:"Alaska"},
+  {value:"Pacific/Honolulu",label:"Hawaii"},
+  {value:"America/Phoenix",label:"Arizona (no DST)"}
+];
+
+function ChoiceDropdown({label,value,options,onChange,placeholder="Select"}:{label:string;value:any;options:any[];onChange:(value:string)=>void;placeholder?:string}){
+  const[open,setOpen]=useState(false);
+  const selected=options.find((o:any)=>String(o.value)===String(value));
+  return <View style={s.choiceBlock}>
+    <Text style={s.choiceLabel}>{label}</Text>
+    <Pressable style={[s.choiceButton,open&&s.choiceButtonOpen]} onPress={()=>setOpen(v=>!v)}>
+      <Text style={[s.choiceValue,!selected&&{color:"#6f8597"}]} numberOfLines={1}>{selected?.label||placeholder}</Text><Text style={s.choiceArrow}>{open?"▲":"▼"}</Text>
+    </Pressable>
+    {open?<View style={s.choiceMenu}>{options.map((o:any)=><Pressable key={String(o.value)} style={[s.choiceOption,String(o.value)===String(value)&&s.choiceOptionActive]} onPress={()=>{onChange(String(o.value));setOpen(false)}}><Text style={[s.choiceOptionText,String(o.value)===String(value)&&s.choiceOptionTextActive]}>{o.label}</Text></Pressable>)}</View>:null}
+  </View>;
+}
+
+function formatMatchDate(value:any,timeZone?:string){
+  const raw=String(value||"").trim();
+  if(!raw)return "Schedule TBD";
+  const normalized=/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(raw)?raw.replace(" ","T"):raw;
+  const d=new Date(normalized);
+  if(Number.isNaN(d.getTime()))return raw;
+  try{return d.toLocaleString([], {weekday:"short",month:"short",day:"numeric",hour:"numeric",minute:"2-digit",timeZone:timeZone||undefined});}catch{return d.toLocaleString();}
+}
+
+const WEEKDAY_OPTIONS=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"].map(v=>({value:v,label:v}));
+const TIME_OPTIONS=Array.from({length:96},(_,i)=>{const h=Math.floor(i/4),m=(i%4)*15;const value=`${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`;const hour=((h+11)%12)+1;const ampm=h<12?"AM":"PM";return{value,label:`${hour}:${String(m).padStart(2,"0")} ${ampm} Eastern`}});
+const SEASON_STATUS_OPTIONS=[{value:"draft",label:"Draft"},{value:"current",label:"Current"},{value:"completed",label:"Completed"},{value:"archived",label:"Archived"}];
+const SCHEDULE_TYPE_OPTIONS=[{value:"single",label:"Single Round Robin"},{value:"double",label:"Double Round Robin"}];
+const MATCH_STATUS_OPTIONS=[{value:"scheduled",label:"Scheduled"},{value:"completed",label:"Completed"},{value:"void",label:"Void"}];
+const ROLE_OPTIONS=[{value:"player",label:"Player"},{value:"moderator",label:"Moderator"},{value:"manager",label:"Manager"}];
+const ACTIVE_OPTIONS=[{value:"true",label:"Active"},{value:"false",label:"Disabled"}];
+const CAPACITY_OPTIONS=Array.from({length:11},(_,i)=>({value:String(i+2),label:String(i+2)}));
+function legalResultOptions(bestOf:any){const n=Math.max(1,Number(bestOf)||5);const win=Math.floor(n/2)+1;const out:any[]=[];for(let loser=0;loser<win;loser++){out.push({value:`${win}-${loser}`,label:`${win} - ${loser}`});out.push({value:`${loser}-${win}`,label:`${loser} - ${win}`});}return out;}
+function localMatchLabel(m:any,timeZone?:string){return String(m?.scheduled_local_label||m?.scheduled_eastern_label||formatMatchDate(m?.scheduled_at_local||m?.scheduled_at,timeZone));}
+function easternDateValue(m:any){const raw=String(m?.scheduled_at_eastern||m?.scheduled_at||"");return /^\d{4}-\d{2}-\d{2}/.test(raw)?raw.slice(0,10):"";}
+function easternTimeValue(m:any){const raw=String(m?.scheduled_at_eastern||m?.scheduled_at||"");return raw.length>=16?raw.slice(11,16):"";}
+function neutralOpponent(m:any,me:any){const id=Number(me||0);return Number(m?.player1_id)===id?m?.player2_name:m?.player1_name;}
+function isTournamentMatch(m:any){const stage=String(m?.stage||m?.match_type||m?.type||"").toLowerCase();return !!stage&&stage!=="regular_season"&&(stage.includes("playoff")||stage.includes("tournament")||stage.includes("championship")||stage.includes("final")||stage.includes("semifinal"));}
+function tournamentMatchesFromPayload(payload:any){
+  if(Array.isArray(payload))return payload;
+  for(const k of ["matches","tournament_matches","playoff_matches"]){if(Array.isArray(payload?.[k]))return payload[k];}
+  if(Array.isArray(payload?.brackets)){const out:any[]=[];for(const b of payload.brackets){const rows=Array.isArray(b?.matches)?b.matches:Array.isArray(b?.rounds)?b.rounds.flatMap((r:any)=>Array.isArray(r?.matches)?r.matches:[]):[];for(const m of rows)out.push({...m,division_name:m?.division_name||b?.division_name||b?.name||"Tournament"});}return out;}
+  return [];
+}
+function tournamentRoundLabel(m:any){return String(m?.round_label||m?.round_name||m?.round||m?.stage||"Tournament Match").replace(/_/g," ");}
+function normalizeRulebook(payload:any){const icons=["◆","🎯","★","▤","◷","!","✓","⚙","↩","🏆","↕","◉","⚖","▥","◈"];const raw=Array.isArray(payload?.sections)?payload.sections:[];const sections=raw.map((r:any,i:number)=>({n:String(r?.Number??r?.number??r?.n??i+1).padStart(2,"0"),title:String(r?.Title??r?.title??`Rule ${i+1}`),icon:icons[i%icons.length],items:Array.isArray(r?.Items)?r.Items.map(String):Array.isArray(r?.items)?r.items.map(String):[]}));return{title:String(payload?.title||"US AutoDarts League — Rules v1.0 Draft"),version:String(payload?.version||"1.0 Draft"),sections:sections.length?sections:leagueRules};}
+function normalizeAwardCatalog(payload:any){const raw=Array.isArray(payload)?payload:Array.isArray(payload?.catalog)?payload.catalog:Array.isArray(payload?.awards)?payload.awards:[];return raw.map((a:any)=>({type:String(a.type||a.code||a.id||"award"),category:String(a.category||"Special Achievements"),name:String(a.name||a.title||"Award"),detail:String(a.detail||a.description||a.how_to_earn||a.earning_rule||"See league server for award requirements."),image_url:String(a.image_url||a.artwork_url||a.image||""),active:a.active!==false})).filter((a:any)=>a.active);}
+function absoluteAwardUrl(value:any){const raw=String(value||"").trim();if(!raw)return"";if(/^https?:\/\//i.test(raw))return raw;return `${API_BASE_URL}${raw.startsWith("/")?raw:`/${raw}`}`;}
+
+function normalizedServerRole(player:any){
+  const raw=String(player?.server_role||player?.role||"player").toLowerCase().trim();
+  return raw==="admin"?"manager":raw;
+}
+
+function ModeratorServerPanel({currentPlayer,onBack}:{currentPlayer:any;onBack:()=>void}){
+  const[area,setAreaRaw]=useState("Dashboard");
+  const[loading,setLoading]=useState(false);const[error,setError]=useState("");const[data,setData]=useState<any>(null);
+  const[players,setPlayers]=useState<any[]>([]);const[divisions,setDivisions]=useState<any[]>([]);const[form,setForm]=useState<Record<string,string>>({});
+  const backRef=useRef<string[]>([]),forwardRef=useRef<string[]>([]);const areaRef=useRef(area);areaRef.current=area;const isModerator=normalizedServerRole(currentPlayer)==="moderator";
+  const setField=(k:string,v:string)=>setForm(p=>({...p,[k]:v}));
+  const goto=(next:string)=>{const current=areaRef.current;if(next===current)return;backRef.current.push(current);forwardRef.current=[];setForm({});setAreaRaw(next)};
+  const back=()=>{const current=areaRef.current;if(current==="Dashboard"){onBack();return}const prev=backRef.current.pop()||"Dashboard";forwardRef.current.push(current);setForm({});setAreaRaw(prev)};
+  const forward=()=>{const current=areaRef.current;const next=forwardRef.current.pop();if(!next)return;backRef.current.push(current);setForm({});setAreaRaw(next)};
+  const pan=useRef(PanResponder.create({onMoveShouldSetPanResponder:(_,g)=>Math.abs(g.dx)>22&&Math.abs(g.dx)>Math.abs(g.dy)*1.4,onPanResponderRelease:(_,g)=>{if(g.dx>70)back();else if(g.dx<-70)forward();}})).current;
+  const load=async(target=areaRef.current)=>{if(!isModerator)return;setLoading(true);setError("");try{let result:any=null;if(target==="Dashboard"){const[p,m]=await Promise.all([apiRequest("/api/moderator/players"),apiRequest("/api/moderator/matches")]);setPlayers(Array.isArray(p)?p:[]);result={players:Array.isArray(p)?p:[],matches:Array.isArray(m)?m:[]};}else if(target==="Players"){const[p,d]=await Promise.all([apiRequest("/api/moderator/players"),apiRequest("/api/moderator/divisions")]);setPlayers(Array.isArray(p)?p:[]);setDivisions(Array.isArray(d)?d:[]);result=Array.isArray(p)?p:[];}else if(target==="Matches"){const[m,p]=await Promise.all([apiRequest("/api/moderator/matches"),apiRequest("/api/moderator/players")]);setPlayers(Array.isArray(p)?p:[]);result=Array.isArray(m)?m:[];}setData(result);}catch(e:any){setError(String(e?.message||e||"Could not load moderator tools."));}finally{setLoading(false)}};
+  useEffect(()=>{load(area)},[area]);
+  const mutate=async(path:string,options:any,success:string)=>{setLoading(true);setError("");try{await apiRequest(path,options);Alert.alert("Server updated",success);setForm({});await load(areaRef.current);}catch(e:any){setError(String(e?.message||e||"Server update failed."));}finally{setLoading(false)}};
+  const shell=(node:any)=><View style={{flex:1}} {...pan.panHandlers}>{node}</View>;
+  const top=<><Pressable onPress={back}><Text style={s.backLink}>{area==="Dashboard"?"‹ BACK TO SETTINGS":"‹ MODERATOR TOOLS"}</Text></Pressable><View style={s.managerHeader}><View style={[s.serverDot,{backgroundColor:error?"#ff453a":"#39d353"}]}/><View style={{flex:1}}><Text style={s.managerHeaderTitle}>SERVER MODERATOR</Text><Text style={s.managerHeaderSub}>{API_BASE_URL} • {currentPlayer?.display_name||currentPlayer?.username||"Moderator"}</Text></View><Pressable onPress={()=>load(area)}><Text style={s.serverRefresh}>↻</Text></Pressable></View></>;
+  const busy=loading?<Text style={s.managerLoading}>CONNECTING / SYNCING…</Text>:null;const err=error?<View style={s.managerError}><Text style={s.managerErrorTitle}>SERVER MESSAGE</Text><Text style={s.managerErrorText}>{error}</Text></View>:null;
+  if(!isModerator)return shell(<ScrollView><Pressable onPress={onBack}><Text style={s.backLink}>‹ BACK TO SETTINGS</Text></Pressable><Text style={s.title}>Server</Text><Text style={s.emptyStateText}>Moderator access required.</Text></ScrollView>);
+  if(area==="Dashboard"){const pp=Array.isArray(data?.players)?data.players:[],mm=Array.isArray(data?.matches)?data.matches:[];return shell(<ScrollView showsVerticalScrollIndicator={false}>{top}<Text style={s.title}>Moderator Tools</Text><Text style={s.managerLead}>Moderators can add player accounts, reset player passwords, reschedule server-generated matches, and enter match results. Moderators cannot create matches.</Text>{busy}{err}<View style={s.managerMetricGrid}>{[["PLAYERS",pp.length],["MATCHES",mm.length],["ACCESS","LIMITED"]].map((x:any)=><View key={x[0]} style={s.managerMetric}><Text style={s.managerMetricLabel}>{x[0]}</Text><Text style={s.managerMetricValue}>{String(x[1])}</Text></View>)}</View>{[["Players","👥","Add player accounts and reset passwords"],["Matches","🎯","Reschedule generated matches and enter results"]].map((x:any)=><Pressable key={x[0]} style={s.managerMenuRow} onPress={()=>goto(x[0])}><View style={s.managerMenuIcon}><Text>{x[1]}</Text></View><View style={{flex:1}}><Text style={s.managerMenuTitle}>{x[0]}</Text><Text style={s.managerMenuSub}>{x[2]}</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>)}</ScrollView>)}
+  if(area==="Players"){const divisionOptions=[{value:"0",label:"Unassigned"},...divisions.map((d:any)=>({value:String(d.id),label:String(d.name)}))];const add=()=>{if(!form.display_name?.trim()||!form.username?.trim()||!form.password){Alert.alert("Missing information","Display name, username and a 6+ character password are required.");return}mutate("/api/moderator/players",{method:"POST",body:JSON.stringify({display_name:form.display_name.trim(),username:form.username.trim(),email:(form.email||"").trim(),password:form.password,division_id:Number(form.division_id||0),timezone:form.timezone||"America/New_York"})},"Player account added.")};return shell(<ScrollView showsVerticalScrollIndicator={false}>{top}<Text style={s.title}>Players</Text>{busy}{err}<View style={s.managerForm}><Text style={s.managerFormTitle}>ADD PLAYER</Text><TextInput style={s.managerInput} placeholder="Display Name" placeholderTextColor="#6f8597" value={form.display_name||""} onChangeText={v=>setField("display_name",v)}/><TextInput style={s.managerInput} placeholder="AutoDarts / League Username" placeholderTextColor="#6f8597" autoCapitalize="none" value={form.username||""} onChangeText={v=>setField("username",v)}/><TextInput style={s.managerInput} placeholder="Email (optional)" placeholderTextColor="#6f8597" value={form.email||""} onChangeText={v=>setField("email",v)}/><TextInput style={s.managerInput} placeholder="Temporary Password" placeholderTextColor="#6f8597" secureTextEntry value={form.password||""} onChangeText={v=>setField("password",v)}/><ChoiceDropdown label="Division" value={form.division_id||"0"} options={divisionOptions} onChange={v=>setField("division_id",v)}/><ChoiceDropdown label="Time Zone" value={form.timezone||"America/New_York"} options={US_TIME_ZONES} onChange={v=>setField("timezone",v)}/><Pressable style={s.managerPrimary} onPress={add}><Text style={s.managerButtonText}>ADD PLAYER</Text></Pressable></View><Text style={s.managerSection}>PASSWORD RESETS</Text>{players.map((p:any)=><View key={p.id} style={s.managerListCard}><Text style={s.managerListTitle}>{p.display_name}</Text><Text style={s.managerListSub}>@{p.username} • {p.division_name||"Unassigned"}</Text><View style={s.managerResetRow}><TextInput style={[s.managerInput,{flex:1,marginBottom:0}]} placeholder="New password" placeholderTextColor="#6f8597" secureTextEntry value={form[`pw_${p.id}`]||""} onChangeText={v=>setField(`pw_${p.id}`,v)}/><Pressable style={s.managerDanger} onPress={()=>{const pw=form[`pw_${p.id}`]||"";if(pw.length<6){Alert.alert("Password","Enter at least 6 characters.");return}mutate(`/api/moderator/players/${p.id}/reset-password`,{method:"POST",body:JSON.stringify({password:pw})},"Password reset.")}}><Text style={s.managerButtonText}>RESET</Text></Pressable></View></View>)}</ScrollView>)}
+  if(area==="Matches"){const rows=Array.isArray(data)?data:[];const matchOptions=rows.map((m:any)=>({value:String(m.id),label:`#${m.id} • ${m.player1_name} vs ${m.player2_name} • W${m.week_no||"—"}`}));const selected=rows.find((m:any)=>String(m.id)===String(form.match_id));const resultValue=form.result||"";return shell(<ScrollView showsVerticalScrollIndicator={false}>{top}<Text style={s.title}>Matches & Results</Text>{busy}{err}<View style={s.managerNotice}><Text style={s.managerNoticeTitle}>SERVER-GENERATED MATCHES ONLY</Text><Text style={s.managerNoticeText}>Moderators cannot create matches. Select an existing match to reschedule it or enter its result.</Text></View><ChoiceDropdown label="Match" value={form.match_id||""} options={matchOptions} onChange={v=>setField("match_id",v)} placeholder="Choose generated match"/>{selected?<View style={s.managerForm}><Text style={s.managerFormTitle}>{selected.player1_name} vs {selected.player2_name}</Text><Text style={s.managerListSub}>{selected.season_name||"Season"} • Week {selected.week_no||"—"} • Best of {selected.best_of||5}</Text><TextInput style={s.managerInput} placeholder="Match date YYYY-MM-DD" placeholderTextColor="#6f8597" value={form.scheduled_date??easternDateValue(selected)} onChangeText={v=>setField("scheduled_date",v)}/><ChoiceDropdown label="Match Time (Eastern)" value={form.scheduled_time_eastern??easternTimeValue(selected)} options={TIME_OPTIONS} onChange={v=>setField("scheduled_time_eastern",v)}/><Pressable style={s.managerPrimary} onPress={()=>mutate(`/api/moderator/matches/${selected.id}`,{method:"PUT",body:JSON.stringify({scheduled_date:form.scheduled_date??easternDateValue(selected),scheduled_time_eastern:form.scheduled_time_eastern??easternTimeValue(selected)})},"Match rescheduled.")}><Text style={s.managerButtonText}>SAVE RESCHEDULE</Text></Pressable><ChoiceDropdown label="Final Result" value={resultValue} options={legalResultOptions(selected.best_of)} onChange={v=>setField("result",v)} placeholder="Choose final score"/><Pressable style={s.managerPrimary} onPress={()=>{if(!form.result){Alert.alert("Result","Choose the final score first.");return}mutate(`/api/moderator/matches/${selected.id}/result`,{method:"POST",body:JSON.stringify({result:form.result})},"Match result saved.")}}><Text style={s.managerButtonText}>SAVE RESULT</Text></Pressable></View>:null}</ScrollView>)}
+  return shell(<ScrollView>{top}{err}</ScrollView>);
+}
+
+function ManagerServerPanel({currentPlayer,onBack}:{currentPlayer:any;onBack:()=>void}){
+  const[area,setAreaRaw]=useState("Dashboard");const[loading,setLoading]=useState(false);const[error,setError]=useState("");const[data,setData]=useState<any>(null);const[form,setForm]=useState<Record<string,string>>({});const[players,setPlayers]=useState<any[]>([]);const[divisions,setDivisions]=useState<any[]>([]);const[seasons,setSeasons]=useState<any[]>([]);
+  const backRef=useRef<string[]>([]),forwardRef=useRef<string[]>([]);const areaRef=useRef(area);areaRef.current=area;const isManager=normalizedServerRole(currentPlayer)==="manager";
+  const setField=(k:string,v:string)=>setForm(p=>({...p,[k]:v}));const goto=(next:string)=>{const current=areaRef.current;if(next===current)return;backRef.current.push(current);forwardRef.current=[];setForm({});setAreaRaw(next)};const back=()=>{const current=areaRef.current;if(current==="Dashboard"){onBack();return}const prev=backRef.current.pop()||"Dashboard";forwardRef.current.push(current);setForm({});setAreaRaw(prev)};const forward=()=>{const current=areaRef.current;const next=forwardRef.current.pop();if(!next)return;backRef.current.push(current);setForm({});setAreaRaw(next)};
+  const pan=useRef(PanResponder.create({onMoveShouldSetPanResponder:(_,g)=>Math.abs(g.dx)>22&&Math.abs(g.dx)>Math.abs(g.dy)*1.4,onPanResponderRelease:(_,g)=>{if(g.dx>70)back();else if(g.dx<-70)forward();}})).current;
+  const load=async(target=areaRef.current)=>{if(!isManager)return;setLoading(true);setError("");try{let result:any=null;if(target==="Dashboard")result=await apiRequest("/api/admin/dashboard");else if(target==="Season Setup"){const x=await apiRequest("/api/admin/seasons");setSeasons(Array.isArray(x?.seasons)?x.seasons:[]);result=x;}else if(target==="Players"){const[p,d]=await Promise.all([apiRequest("/api/admin/players"),apiRequest("/api/admin/divisions")]);setPlayers(Array.isArray(p)?p:[]);setDivisions(Array.isArray(d)?d:[]);result={players:Array.isArray(p)?p:[],divisions:Array.isArray(d)?d:[]};}else if(target==="Divisions"){const[d,p]=await Promise.all([apiRequest("/api/admin/divisions"),apiRequest("/api/admin/players")]);setDivisions(Array.isArray(d)?d:[]);setPlayers(Array.isArray(p)?p:[]);result={divisions:Array.isArray(d)?d:[],players:Array.isArray(p)?p:[]};}else if(target==="Matches"){const[m,p,d,se]=await Promise.all([apiRequest("/api/admin/matches"),apiRequest("/api/admin/players"),apiRequest("/api/admin/divisions"),apiRequest("/api/admin/seasons")]);setPlayers(Array.isArray(p)?p:[]);setDivisions(Array.isArray(d)?d:[]);setSeasons(Array.isArray(se?.seasons)?se.seasons:[]);result=Array.isArray(m)?m:[];}else if(target==="Standings"){const[d,se]=await Promise.all([apiRequest("/api/admin/divisions"),apiRequest("/api/admin/seasons")]);setDivisions(Array.isArray(d)?d:[]);setSeasons(Array.isArray(se?.seasons)?se.seasons:[]);result=[];}else if(target==="Rules")result=await apiRequest("/api/admin/rules");else if(target==="Trophies & Badges"){try{result=await apiRequest("/api/award-catalog")}catch{result=bundledAwardCatalog}}else if(target==="Announcements")result=await apiRequest("/api/admin/announcements");else if(target==="Backups")result=await apiRequest("/api/admin/backups");else if(target==="League Settings")result=await apiRequest("/api/admin/settings");else if(target==="Audit Log")result=await apiRequest("/api/admin/audit");else if(target==="Tunnel & API")result=await apiRequest("/api/admin/tunnel");setData(result);}catch(e:any){setError(String(e?.message||e||"Could not load manager tools."));}finally{setLoading(false)}};
+  useEffect(()=>{load(area)},[area]);const mutate=async(path:string,options:any,success:string)=>{setLoading(true);setError("");try{await apiRequest(path,options);Alert.alert("Server updated",success);setForm({});await load(areaRef.current);}catch(e:any){setError(String(e?.message||e||"Server update failed."));}finally{setLoading(false)}};const confirm=(title:string,message:string,action:()=>void)=>Alert.alert(title,message,[{text:"Cancel",style:"cancel"},{text:"Confirm",style:"destructive",onPress:action}]);const shell=(node:any)=><View style={{flex:1}} {...pan.panHandlers}>{node}</View>;
+  const top=<><Pressable onPress={back}><Text style={s.backLink}>{area==="Dashboard"?"‹ BACK TO SETTINGS":"‹ MANAGER TOOLS"}</Text></Pressable><View style={s.managerHeader}><View style={[s.serverDot,{backgroundColor:error?"#ff453a":"#39d353"}]}/><View style={{flex:1}}><Text style={s.managerHeaderTitle}>SERVER MANAGER</Text><Text style={s.managerHeaderSub}>{API_BASE_URL} • {currentPlayer?.display_name||currentPlayer?.username||"Manager"}</Text></View><Pressable onPress={()=>load(area)}><Text style={s.serverRefresh}>↻</Text></Pressable></View></>;const busy=loading?<Text style={s.managerLoading}>CONNECTING / SYNCING…</Text>:null;const err=error?<View style={s.managerError}><Text style={s.managerErrorTitle}>SERVER MESSAGE</Text><Text style={s.managerErrorText}>{error}</Text></View>:null;
+  if(!isManager)return shell(<ScrollView><Pressable onPress={onBack}><Text style={s.backLink}>‹ BACK TO SETTINGS</Text></Pressable><Text style={s.title}>Server</Text><Text style={s.emptyStateText}>Manager access required.</Text></ScrollView>);
+  if(area==="Dashboard"){const d=data||{};const menu=[["Season Setup","📅","Create, edit, delete, generate and test seasons"],["Players","👥","Add and edit player accounts"],["Divisions","🛡","Manage divisions and membership"],["Matches","🎯","Edit/reschedule server-generated matches and results"],["Standings","🏆","View or rebuild standings"],["Rules","📘","View server-authoritative rule set"],["Trophies & Badges","🏅","View server award catalog"],["Announcements","📣","Publish announcements"],["Backups","💾","Create and review backups"],["League Settings","⚙","Rule-safe server settings"],["Tunnel & API","☁","View API/tunnel status"],["Audit Log","▤","Review server changes"]];return shell(<ScrollView showsVerticalScrollIndicator={false}>{top}<Text style={s.title}>Manager Tools</Text><Text style={s.managerLead}>The server creates regular-season matches and playoff brackets. The manager app edits/reschedules existing matches but never creates a match manually.</Text>{busy}{err}<View style={s.managerMetricGrid}>{[["PLAYERS",d.players??0],["DIVISIONS",d.divisions??0],["MATCHES",d.matches??0],["PENDING",d.pending??0]].map((x:any)=><View key={x[0]} style={s.managerMetric}><Text style={s.managerMetricLabel}>{x[0]}</Text><Text style={s.managerMetricValue}>{String(x[1])}</Text></View>)}</View>{menu.map((x:any)=><Pressable key={x[0]} style={s.managerMenuRow} onPress={()=>goto(x[0])}><View style={s.managerMenuIcon}><Text>{x[1]}</Text></View><View style={{flex:1}}><Text style={s.managerMenuTitle}>{x[0]}</Text><Text style={s.managerMenuSub}>{x[2]}</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>)}</ScrollView>)}
+  if(area==="Season Setup"){const payload=data||{};const rows=Array.isArray(payload?.seasons)?payload.seasons:seasons;const seasonOptions=[{value:"new",label:"+ New Season"},...rows.map((x:any)=>({value:String(x.id),label:`${x.name} (${x.year}) • ${x.status}`}))];const selected=rows.find((x:any)=>String(x.id)===String(form.season_select));const val=(k:string,def="")=>form[k]??(selected?String(selected[k]??def):def);const choose=(v:string)=>{if(v==="new"){setForm({season_select:"new",status:"draft",schedule_type:"single",match_day:"Thursday",match_time_eastern:"19:00",playoff_day:"Thursday",playoff_time_eastern:"19:00"});return}const x=rows.find((q:any)=>String(q.id)===v);if(!x)return;setForm({season_select:v,name:String(x.name||""),year:String(x.year||""),status:String(x.status||"draft"),start_date:String(x.start_date||""),schedule_type:String(x.schedule_type||"single"),match_day:String(x.match_day||"Thursday"),match_time_eastern:String(x.match_time_eastern||"19:00"),playoff_day:String(x.playoff_day||x.match_day||"Thursday"),playoff_time_eastern:String(x.playoff_time_eastern||x.match_time_eastern||"19:00")})};const save=()=>{const body={name:val("name"),year:Number(val("year")||new Date().getFullYear()),status:val("status","draft"),start_date:val("start_date"),schedule_type:val("schedule_type","single"),match_day:val("match_day","Thursday"),match_time_eastern:val("match_time_eastern","19:00"),playoff_day:val("playoff_day","Thursday"),playoff_time_eastern:val("playoff_time_eastern","19:00")};if(!body.name||!body.start_date){Alert.alert("Season","Season name and Week 1 start date are required.");return}if(selected)mutate(`/api/admin/seasons/${selected.id}`,{method:"PUT",body:JSON.stringify(body)},"Season updated.");else mutate("/api/admin/seasons",{method:"POST",body:JSON.stringify(body)},"Season created.")};return shell(<ScrollView showsVerticalScrollIndicator={false}>{top}<Text style={s.title}>Season Setup</Text>{busy}{err}<ChoiceDropdown label="Season" value={form.season_select||"new"} options={seasonOptions} onChange={choose}/><View style={s.managerForm}><TextInput style={s.managerInput} placeholder="Season Name" placeholderTextColor="#6f8597" value={val("name")} onChangeText={v=>setField("name",v)}/><TextInput style={s.managerInput} placeholder="Year" placeholderTextColor="#6f8597" keyboardType="numeric" value={val("year",String(new Date().getFullYear()))} onChangeText={v=>setField("year",v)}/><ChoiceDropdown label="Status" value={val("status","draft")} options={SEASON_STATUS_OPTIONS} onChange={v=>setField("status",v)}/><TextInput style={s.managerInput} placeholder="Week 1 Start Date YYYY-MM-DD" placeholderTextColor="#6f8597" value={val("start_date")} onChangeText={v=>setField("start_date",v)}/><ChoiceDropdown label="Schedule Type" value={val("schedule_type","single")} options={SCHEDULE_TYPE_OPTIONS} onChange={v=>setField("schedule_type",v)}/><ChoiceDropdown label="Regular Match Day" value={val("match_day","Thursday")} options={WEEKDAY_OPTIONS} onChange={v=>setField("match_day",v)}/><ChoiceDropdown label="Regular Match Time" value={val("match_time_eastern","19:00")} options={TIME_OPTIONS} onChange={v=>setField("match_time_eastern",v)}/><ChoiceDropdown label="Playoff Day" value={val("playoff_day","Thursday")} options={WEEKDAY_OPTIONS} onChange={v=>setField("playoff_day",v)}/><ChoiceDropdown label="Playoff Time" value={val("playoff_time_eastern","19:00")} options={TIME_OPTIONS} onChange={v=>setField("playoff_time_eastern",v)}/><Pressable style={s.managerPrimary} onPress={save}><Text style={s.managerButtonText}>{selected?"SAVE SEASON CHANGES":"CREATE SEASON"}</Text></Pressable>{selected?<><View style={s.managerButtonRow}><Pressable style={s.managerSecondary} onPress={()=>confirm("Generate Schedule","This regenerates this season's server-created regular-season schedule.",()=>mutate(`/api/admin/seasons/${selected.id}/generate`,{method:"POST"},"Season schedule generated."))}><Text style={s.managerButtonText}>GENERATE / REGENERATE</Text></Pressable><Pressable style={s.managerSecondary} onPress={()=>mutate(`/api/admin/seasons/${selected.id}/playoffs`,{method:"POST"},"Eligible playoff matches generated.")}><Text style={s.managerButtonText}>CHECK PLAYOFFS</Text></Pressable></View><Pressable style={s.managerDanger} onPress={()=>confirm("Delete Season","Delete this season and its season matches? This is allowed for testing.",()=>mutate(`/api/admin/seasons/${selected.id}`,{method:"DELETE"},"Season deleted."))}><Text style={s.managerButtonText}>DELETE SEASON</Text></Pressable></>:null}</View><Text style={s.managerHint}>All manager-entered match times are Eastern Time. Player match screens use the time zone stored on each player's server account.</Text></ScrollView>)}
+  if(area==="Players"){const pp=Array.isArray(data?.players)?data.players:players,dd=Array.isArray(data?.divisions)?data.divisions:divisions;const playerOptions=[{value:"new",label:"+ New Player"},...pp.map((x:any)=>({value:String(x.id),label:`${x.display_name} (@${x.username})`}))];const selected=pp.find((x:any)=>String(x.id)===String(form.player_select));const divisionOptions=[{value:"0",label:"Unassigned"},...dd.map((x:any)=>({value:String(x.id),label:String(x.name)}))];const choose=(v:string)=>{if(v==="new"){setForm({player_select:"new",role:"player",active:"true",timezone:"America/New_York",division_id:"0"});return}const x=pp.find((q:any)=>String(q.id)===v);if(x)setForm({player_select:v,display_name:String(x.display_name||""),username:String(x.username||""),email:String(x.email||""),role:String(x.role||"player"),active:String(x.active!==false),timezone:String(x.timezone||"America/New_York"),division_id:String(x.division_id||0)})};const save=()=>{if(!form.display_name?.trim()||!form.username?.trim()){Alert.alert("Player","Display name and username are required.");return}const body:any={display_name:form.display_name.trim(),username:form.username.trim(),email:form.email||"",role:form.role||"player",active:form.active!=="false",timezone:form.timezone||"America/New_York",division_id:Number(form.division_id||0)};if(selected)mutate(`/api/admin/players/${selected.id}`,{method:"PUT",body:JSON.stringify(body)},"Player updated.");else{if((form.password||"").length<6){Alert.alert("Password","New players need a 6+ character password.");return}body.password=form.password;mutate("/api/admin/players",{method:"POST",body:JSON.stringify(body)},"Player created.")}};return shell(<ScrollView showsVerticalScrollIndicator={false}>{top}<Text style={s.title}>Players</Text>{busy}{err}<ChoiceDropdown label="Player" value={form.player_select||"new"} options={playerOptions} onChange={choose}/><View style={s.managerForm}><TextInput style={s.managerInput} placeholder="Display Name" placeholderTextColor="#6f8597" value={form.display_name||""} onChangeText={v=>setField("display_name",v)}/><TextInput style={s.managerInput} placeholder="AutoDarts / League Username" placeholderTextColor="#6f8597" value={form.username||""} onChangeText={v=>setField("username",v)}/><TextInput style={s.managerInput} placeholder="Email" placeholderTextColor="#6f8597" value={form.email||""} onChangeText={v=>setField("email",v)}/>{!selected?<TextInput style={s.managerInput} placeholder="Temporary Password" placeholderTextColor="#6f8597" secureTextEntry value={form.password||""} onChangeText={v=>setField("password",v)}/>:null}<ChoiceDropdown label="Role" value={form.role||"player"} options={ROLE_OPTIONS} onChange={v=>setField("role",v)}/><ChoiceDropdown label="Account Status" value={form.active||"true"} options={ACTIVE_OPTIONS} onChange={v=>setField("active",v)}/><ChoiceDropdown label="Division" value={form.division_id||"0"} options={divisionOptions} onChange={v=>setField("division_id",v)}/><ChoiceDropdown label="Time Zone" value={form.timezone||"America/New_York"} options={US_TIME_ZONES} onChange={v=>setField("timezone",v)}/><Pressable style={s.managerPrimary} onPress={save}><Text style={s.managerButtonText}>{selected?"SAVE PLAYER":"ADD PLAYER"}</Text></Pressable>{selected?<><TextInput style={s.managerInput} placeholder="New password (optional)" placeholderTextColor="#6f8597" secureTextEntry value={form.reset_password||""} onChangeText={v=>setField("reset_password",v)}/><Pressable style={s.managerDanger} onPress={()=>{if((form.reset_password||"").length<6){Alert.alert("Password","Enter at least 6 characters.");return}mutate(`/api/admin/players/${selected.id}/reset-password`,{method:"POST",body:JSON.stringify({password:form.reset_password})},"Password reset.")}}><Text style={s.managerButtonText}>RESET PASSWORD</Text></Pressable></>:null}</View></ScrollView>)}
+  if(area==="Divisions"){const dd=Array.isArray(data?.divisions)?data.divisions:divisions,pp=Array.isArray(data?.players)?data.players:players;const divisionOptions=[{value:"new",label:"+ New Division"},...dd.map((x:any)=>({value:String(x.id),label:String(x.name)}))];const selected=dd.find((x:any)=>String(x.id)===String(form.division_select));const assigned=selected?pp.filter((x:any)=>Number(x.division_id)===Number(selected.id)):[];const playerOptions=pp.filter((x:any)=>!selected||Number(x.division_id)!==Number(selected.id)).map((x:any)=>({value:String(x.id),label:`${x.display_name} • ${x.division_name||"Unassigned"}`}));const choose=(v:string)=>{if(v==="new")setForm({division_select:"new",capacity:"12"});else{const x=dd.find((q:any)=>String(q.id)===v);if(x)setForm({division_select:v,name:String(x.name||""),capacity:String(x.capacity||12)})}};const save=()=>{if(!form.name?.trim()){Alert.alert("Division","Enter a division name.");return}const body={name:form.name.trim(),capacity:Number(form.capacity||12)};if(selected)mutate(`/api/admin/divisions/${selected.id}`,{method:"PUT",body:JSON.stringify(body)},"Division updated.");else mutate("/api/admin/divisions",{method:"POST",body:JSON.stringify(body)},"Division created.")};return shell(<ScrollView showsVerticalScrollIndicator={false}>{top}<Text style={s.title}>Divisions</Text>{busy}{err}<ChoiceDropdown label="Division" value={form.division_select||"new"} options={divisionOptions} onChange={choose}/><View style={s.managerForm}><TextInput style={s.managerInput} placeholder="Division Name" placeholderTextColor="#6f8597" value={form.name||""} onChangeText={v=>setField("name",v)}/><ChoiceDropdown label="Capacity" value={form.capacity||"12"} options={CAPACITY_OPTIONS} onChange={v=>setField("capacity",v)}/><Pressable style={s.managerPrimary} onPress={save}><Text style={s.managerButtonText}>{selected?"SAVE DIVISION":"ADD DIVISION"}</Text></Pressable></View>{selected?<><Text style={s.managerSection}>ASSIGNED PLAYERS</Text>{assigned.map((x:any)=><View key={x.id} style={s.managerListCard}><Text style={s.managerListTitle}>{x.display_name}</Text><Pressable style={s.managerDanger} onPress={()=>mutate(`/api/admin/divisions/${selected.id}/players/${x.id}`,{method:"DELETE"},"Player removed from division.")}><Text style={s.managerButtonText}>REMOVE</Text></Pressable></View>)}<ChoiceDropdown label="Add / Move Player" value={form.assign_player||""} options={playerOptions} onChange={v=>setField("assign_player",v)} placeholder="Choose player"/><Pressable style={s.managerPrimary} onPress={()=>{if(!form.assign_player)return;mutate(`/api/admin/divisions/${selected.id}/players`,{method:"POST",body:JSON.stringify({player_id:Number(form.assign_player)})},"Player assigned to division.")}}><Text style={s.managerButtonText}>ADD / MOVE PLAYER</Text></Pressable></>:null}</ScrollView>)}
+  if(area==="Matches"){const mm=Array.isArray(data)?data:[];const matchOptions=mm.map((m:any)=>({value:String(m.id),label:`#${m.id} • ${m.player1_name} vs ${m.player2_name} • ${m.season_name||"Season"} W${m.week_no||"—"}`}));const selected=mm.find((x:any)=>String(x.id)===String(form.match_select));const playerOptions=players.map((x:any)=>({value:String(x.id),label:String(x.display_name)})),divisionOptions=divisions.map((x:any)=>({value:String(x.id),label:String(x.name)})),seasonOptions=seasons.map((x:any)=>({value:String(x.id),label:`${x.name} (${x.year})`}));const maxWeek=Math.max(1,Number(seasons.find((x:any)=>Number(x.id)===Number(selected?.season_id))?.regular_weeks||20)+2);const weekOptions=Array.from({length:Math.max(20,maxWeek)},(_,i)=>({value:String(i+1),label:`Week ${i+1}`}));const val=(k:string,def="")=>form[k]??(selected?String(selected[k]??def):def);return shell(<ScrollView showsVerticalScrollIndicator={false}>{top}<Text style={s.title}>Matches & Results</Text>{busy}{err}<View style={s.managerNotice}><Text style={s.managerNoticeTitle}>NO MANUAL MATCH CREATION</Text><Text style={s.managerNoticeText}>Season Setup generates matches. Manager tools only adjust, reschedule, approve, void, or correct existing matches.</Text></View><ChoiceDropdown label="Generated Match" value={form.match_select||""} options={matchOptions} onChange={v=>{const x=mm.find((q:any)=>String(q.id)===v);if(!x)return;setForm({match_select:v,player1_id:String(x.player1_id),player2_id:String(x.player2_id),season_id:String(x.season_id),division_id:String(x.division_id),week_no:String(x.week_no||1),status:String(x.status||"scheduled"),scheduled_date:easternDateValue(x),scheduled_time_eastern:easternTimeValue(x)})}} placeholder="Choose match to edit"/>{selected?<View style={s.managerForm}><ChoiceDropdown label="Player 1" value={val("player1_id")} options={playerOptions} onChange={v=>setField("player1_id",v)}/><ChoiceDropdown label="Player 2" value={val("player2_id")} options={playerOptions} onChange={v=>setField("player2_id",v)}/><ChoiceDropdown label="Season" value={val("season_id")} options={seasonOptions} onChange={v=>setField("season_id",v)}/><ChoiceDropdown label="Division" value={val("division_id")} options={divisionOptions} onChange={v=>setField("division_id",v)}/><ChoiceDropdown label="Week" value={val("week_no","1")} options={weekOptions} onChange={v=>setField("week_no",v)}/><TextInput style={s.managerInput} placeholder="Match Date YYYY-MM-DD" placeholderTextColor="#6f8597" value={val("scheduled_date",easternDateValue(selected))} onChangeText={v=>setField("scheduled_date",v)}/><ChoiceDropdown label="Match Time (Eastern)" value={val("scheduled_time_eastern",easternTimeValue(selected))} options={TIME_OPTIONS} onChange={v=>setField("scheduled_time_eastern",v)}/><ChoiceDropdown label="Status" value={val("status","scheduled")} options={MATCH_STATUS_OPTIONS} onChange={v=>setField("status",v)}/><Pressable style={s.managerPrimary} onPress={()=>mutate(`/api/admin/matches/${selected.id}`,{method:"PUT",body:JSON.stringify({player1_id:Number(val("player1_id")),player2_id:Number(val("player2_id")),season_id:Number(val("season_id")),division_id:Number(val("division_id")),week_no:Number(val("week_no")),scheduled_date:val("scheduled_date"),scheduled_time_eastern:val("scheduled_time_eastern"),status:val("status","scheduled")})},"Match changes saved.")}><Text style={s.managerButtonText}>SAVE MATCH CHANGES</Text></Pressable><ChoiceDropdown label="Final Result" value={form.result||""} options={legalResultOptions(selected.best_of)} onChange={v=>setField("result",v)} placeholder="Choose final score"/><Pressable style={s.managerPrimary} onPress={()=>{if(!form.result){Alert.alert("Result","Choose a final result.");return}mutate(`/api/admin/matches/${selected.id}/result`,{method:"POST",body:JSON.stringify({result:form.result})},"Result saved.")}}><Text style={s.managerButtonText}>SAVE / CORRECT RESULT</Text></Pressable><View style={s.managerButtonRow}><Pressable style={s.managerSecondary} onPress={()=>mutate(`/api/admin/matches/${selected.id}/approve`,{method:"POST"},"Result approved.")}><Text style={s.managerButtonText}>APPROVE</Text></Pressable><Pressable style={s.managerDanger} onPress={()=>confirm("Void Match","Void this existing match?",()=>mutate(`/api/admin/matches/${selected.id}/void`,{method:"POST"},"Match voided."))}><Text style={s.managerButtonText}>VOID</Text></Pressable></View></View>:null}</ScrollView>)}
+  if(area==="Standings"){const divisionOptions=divisions.map((x:any)=>({value:String(x.id),label:String(x.name)})),seasonOptions=seasons.map((x:any)=>({value:String(x.id),label:`${x.name} (${x.year})`}));const rows=Array.isArray(data)?data:[];const loadStandings=async()=>{if(!form.division_id)return;setLoading(true);try{const x=await apiRequest(`/api/admin/standings?division_id=${encodeURIComponent(form.division_id)}&season_id=${encodeURIComponent(form.season_id||"")}`);setData(Array.isArray(x)?x:[])}catch(e:any){setError(String(e?.message||e))}finally{setLoading(false)}};return shell(<ScrollView showsVerticalScrollIndicator={false}>{top}<Text style={s.title}>Standings</Text>{busy}{err}<ChoiceDropdown label="Division" value={form.division_id||""} options={divisionOptions} onChange={v=>setField("division_id",v)} placeholder="Choose division"/><ChoiceDropdown label="Season" value={form.season_id||""} options={seasonOptions} onChange={v=>setField("season_id",v)} placeholder="Current season"/><Pressable style={s.managerPrimary} onPress={loadStandings}><Text style={s.managerButtonText}>LOAD STANDINGS</Text></Pressable><Pressable style={s.managerSecondary} onPress={()=>mutate("/api/admin/standings/rebuild",{method:"POST"},"Standings rebuilt from authoritative match data.")}><Text style={s.managerButtonText}>REBUILD STANDINGS</Text></Pressable>{rows.map((r:any,i:number)=><View key={r.player_id||i} style={s.managerListCard}><Text style={s.managerListTitle}>#{r.rank??i+1} {r.player}</Text><Text style={s.managerListSub}>P {r.played||0} • W {r.wins||0} • L {r.losses||0} • LD {r.leg_difference||0} • PTS {r.points||0}</Text></View>)}</ScrollView>)}
+  if(area==="Rules"){const book=normalizeRulebook(data);return shell(<ScrollView showsVerticalScrollIndicator={false}>{top}<Text style={s.title}>League Rules</Text>{err}<Text style={s.managerHint}>{book.title} • {book.version} • server authoritative</Text>{book.sections.map((r:any)=><RuleCard key={r.n} rule={r}/>)}</ScrollView>)}
+  if(area==="Trophies & Badges"){const catalog=normalizeAwardCatalog(data);const shown=catalog.length?catalog:bundledAwardCatalog;return shell(<ScrollView showsVerticalScrollIndicator={false}>{top}<Text style={s.title}>Trophies & Badges</Text><View style={s.managerNotice}><Text style={s.managerNoticeTitle}>{shown.length} ACTIVE AWARDS</Text><Text style={s.managerNoticeText}>The app is ready for the server-managed award catalog and server artwork endpoint. Until that server patch is installed, the existing bundled artwork remains the visual fallback.</Text></View>{shown.map((a:any)=><View key={a.type} style={s.managerListCard}><Text style={s.managerListTitle}>{a.name}</Text><Text style={s.managerListSub}>{a.category}</Text><Text style={s.managerBodyText}>{a.detail}</Text></View>)}</ScrollView>)}
+  if(area==="Announcements"){const rows=Array.isArray(data)?data:[];return shell(<ScrollView showsVerticalScrollIndicator={false}>{top}<Text style={s.title}>Announcements</Text>{busy}{err}<View style={s.managerForm}><TextInput style={s.managerInput} placeholder="Announcement title" placeholderTextColor="#6f8597" value={form.title||""} onChangeText={v=>setField("title",v)}/><TextInput style={[s.managerInput,{minHeight:90,textAlignVertical:"top"}]} multiline placeholder="Message" placeholderTextColor="#6f8597" value={form.body||""} onChangeText={v=>setField("body",v)}/><Pressable style={s.managerPrimary} onPress={()=>mutate("/api/admin/announcements",{method:"POST",body:JSON.stringify({title:form.title||"",body:form.body||""})},"Announcement published.")}><Text style={s.managerButtonText}>PUBLISH</Text></Pressable></View>{rows.map((a:any)=><View key={a.id} style={s.managerListCard}><Text style={s.managerListTitle}>{a.title}</Text><Text style={s.managerBodyText}>{a.body}</Text></View>)}</ScrollView>)}
+  if(area==="Backups"){const rows=Array.isArray(data)?data:[];return shell(<ScrollView>{top}<Text style={s.title}>Backups</Text>{busy}{err}<Pressable style={s.managerPrimary} onPress={()=>mutate("/api/admin/backups",{method:"POST"},"Server backup created.")}><Text style={s.managerButtonText}>CREATE BACKUP</Text></Pressable>{rows.map((b:any,i:number)=><View key={b.name||i} style={s.managerListCard}><Text style={s.managerListTitle}>{b.name}</Text><Text style={s.managerListSub}>{b.date||b.modified||""} • {b.size||""}</Text></View>)}</ScrollView>)}
+  if(area==="League Settings"){const d=data||{};return shell(<ScrollView>{top}<Text style={s.title}>League Settings</Text>{busy}{err}<View style={s.managerForm}><ChoiceDropdown label="Division Capacity" value={form.division_capacity||String(d.division_capacity||12)} options={CAPACITY_OPTIONS} onChange={v=>setField("division_capacity",v)}/><Pressable style={s.managerPrimary} onPress={()=>mutate("/api/admin/settings",{method:"PUT",body:JSON.stringify({division_capacity:Number(form.division_capacity||d.division_capacity||12)})},"League settings saved.")}><Text style={s.managerButtonText}>SAVE SETTINGS</Text></Pressable><Text style={s.managerHint}>Rule-controlled settings are read-only: Best of {d.best_of||5}, draws {String(d.draws_allowed??false)}, {d.points_win||3} points per win, playoff semifinals Best of {d.playoff_semifinal_best_of||7}, final Best of {d.playoff_final_best_of||9}. Scheduling is entered in Eastern Time.</Text></View></ScrollView>)}
+  if(area==="Tunnel & API"){const d=data||{};return shell(<ScrollView>{top}<Text style={s.title}>Tunnel & API</Text>{busy}{err}<View style={s.managerListCard}><Text style={s.managerListTitle}>{d.api_hostname||"api.usautodartsleague.com"}</Text><Text style={s.managerListSub}>API local: {d.api_local||"http://127.0.0.1:8080"}</Text><Text style={s.managerListSub}>Website: {d.website_hostname||"play.usautodartsleague.com"}</Text><Text style={s.managerListSub}>Website local: {d.website_local||"http://127.0.0.1:8081"}</Text></View><View style={s.managerButtonRow}><Pressable style={s.managerSecondary} onPress={()=>mutate("/api/admin/tunnel/test",{method:"POST"},"Local API test complete.")}><Text style={s.managerButtonText}>TEST API</Text></Pressable><Pressable style={s.managerSecondary} onPress={()=>mutate("/api/admin/tunnel/check",{method:"POST"},"Tunnel status checked.")}><Text style={s.managerButtonText}>CHECK TUNNEL</Text></Pressable></View></ScrollView>)}
+  if(area==="Audit Log"){const rows=Array.isArray(data)?data:[];return shell(<ScrollView>{top}<Text style={s.title}>Audit Log</Text>{busy}{err}{rows.map((r:any,i:number)=><View key={r.id||i} style={s.managerListCard}><Text style={s.managerListTitle}>{r.action}</Text><Text style={s.managerListSub}>{r.created_at||r.time||""} • {r.actor||r.role||""}</Text><Text style={s.managerBodyText}>{r.details||""}</Text></View>)}</ScrollView>)}
+  return shell(<ScrollView>{top}{err}</ScrollView>);
+}
+
+
+export default function App(){
+const[showSplash,setShowSplash]=useState(true);
+const[signedIn,setSignedIn]=useState(false);
+const[tab,setTabRaw]=useState("Home");
+const navBackRef=useRef<string[]>([]);
+const navForwardRef=useRef<string[]>([]);
+const[selectedPlayer,setSelectedPlayer]=useState<string|null>(null);
+const[selectedDivision,setSelectedDivision]=useState("Unassigned");
+const[fontScale,setFontScale]=useState(1);
+const[playerName,setPlayerName]=useState("");
+const[screenName,setScreenName]=useState("");
+const[timeZone,setTimeZone]=useState(()=>{try{return Intl.DateTimeFormat().resolvedOptions().timeZone||"America/New_York"}catch{return"America/New_York"}});
+const[profileImage,setProfileImage]=useState<string|null>(null);
+const[matchScreenshots,setMatchScreenshots]=useState<Record<string,string[]>>({});
+const[currentPlayer,setCurrentPlayer]=useState<any>(null);
+const[authReady,setAuthReady]=useState(false);
+const[autoSignInMessage,setAutoSignInMessage]=useState("");
+const[currentPassword,setCurrentPassword]=useState("");
+const[newPassword,setNewPassword]=useState("");
+const[confirmPassword,setConfirmPassword]=useState("");
+const[passwordWorking,setPasswordWorking]=useState(false);
+const[passwordError,setPasswordError]=useState("");
+const serverRole=normalizedServerRole(currentPlayer);
+const[serverOnline,setServerOnline]=useState<boolean|null>(null);
+const[serverDivisions,setServerDivisions]=useState<any[]>([]);
+const[serverStandings,setServerStandings]=useState<Record<string,any[]>>({});
+const[serverAnnouncements,setServerAnnouncements]=useState<any[]>([]);
+const[serverMatches,setServerMatches]=useState<any[]>([]);
+const[serverTournamentMatches,setServerTournamentMatches]=useState<any[]>([]);
+const[tournamentEndpointReady,setTournamentEndpointReady]=useState(true);
+const[serverSeasons,setServerSeasons]=useState<any[]>([]);
+const[currentSeasonId,setCurrentSeasonId]=useState(0);
+const[selectedSeasonId,setSelectedSeasonId]=useState("");
+const[serverRulebook,setServerRulebook]=useState<any>({title:"US AutoDarts League — Rules v1.0 Draft",version:"1.0 Draft",sections:leagueRules});
+const[serverAwardCatalog,setServerAwardCatalog]=useState<any[]>(bundledAwardCatalog);
+const[serverEarnedAwards,setServerEarnedAwards]=useState<any[]>([]);
+const tabRef=useRef(tab);tabRef.current=tab;
+const setTab=(next:string)=>{const current=tabRef.current;if(next===current)return;navBackRef.current.push(current);navForwardRef.current=[];setTabRaw(next)};
+const goBackTab=()=>{const current=tabRef.current;const submenu=["Settings","ProfileSetup","FontSize","Security","LeagueRules","TrophyCase","ModeratorServer","ManagerServer","Contact","PlayerStats","DivisionPicker"].includes(current);if(!submenu)return;const prev=navBackRef.current.pop();if(!prev)return;navForwardRef.current.push(current);setTabRaw(prev)};
+const goForwardTab=()=>{const current=tabRef.current;const next=navForwardRef.current.pop();if(!next)return;navBackRef.current.push(current);setTabRaw(next)};
+const appPanResponder=useRef(PanResponder.create({onMoveShouldSetPanResponder:(_,g)=>Math.abs(g.dx)>22&&Math.abs(g.dx)>Math.abs(g.dy)*1.4,onPanResponderRelease:(_,g)=>{if(g.dx>70)goBackTab();else if(g.dx<-70)goForwardTab();}})).current;
+
+const applyServerPlayer=(player:any)=>{
+  setCurrentPlayer(player);
+  const name=String(player?.display_name||player?.username||"").trim();
+  const screen=String(player?.screen_name||player?.username||name).trim();
+  setPlayerName(name);
+  setScreenName(screen);
+  if(player?.division_name)setSelectedDivision(player.division_name);
+  if(player?.timezone)setTimeZone(player.timezone);
+};
+
+const clearStoredAuth=async(clearPassword=true)=>{
+  runtimeAuthToken=null;
+  await SecureStore.deleteItemAsync("league_session");
+  await SecureStore.deleteItemAsync("league_player");
+  if(clearPassword){
+    await SecureStore.deleteItemAsync("league_password");
+    await SecureStore.deleteItemAsync("league_keep_signed_in");
+  }
+};
+
+useEffect(()=>{
+  (async()=>{
+    try{
+      const savedScale=await SecureStore.getItemAsync("gui_font_scale");
+      const savedProfile=await SecureStore.getItemAsync("player_profile");
+      if(savedScale)setFontScale(Number(savedScale)||1);
+      if(savedProfile){
+        try{
+          const p=JSON.parse(savedProfile);
+          if(p.timeZone)setTimeZone(p.timeZone);
+          if(p.profileImage)setProfileImage(p.profileImage);
+        }catch{}
+      }
+
+      const keep=await SecureStore.getItemAsync("league_keep_signed_in");
+      const savedUsername=await SecureStore.getItemAsync("league_username");
+      const savedPassword=await SecureStore.getItemAsync("league_password");
+      if(keep==="1"&&savedUsername&&savedPassword){
+        try{
+          const auth=await apiRequest("/api/auth/login",{method:"POST",body:JSON.stringify({username:savedUsername,password:savedPassword})});
+          if(!auth?.token||!auth?.player)throw new Error("The server returned an invalid login response.");
+          runtimeAuthToken=auth.token;
+          await SecureStore.setItemAsync("league_session",auth.token);
+          await SecureStore.setItemAsync("league_player",JSON.stringify(auth.player));
+          applyServerPlayer(auth.player);
+          setSignedIn(true);
+        }catch(e:any){
+          const status=Number(e?.status||0);
+          if(status===401||status===403){
+            await clearStoredAuth(true);
+            setAutoSignInMessage("Your saved sign-in is no longer valid. Enter the current password from the league server to continue.");
+          }else{
+            runtimeAuthToken=null;
+            setAutoSignInMessage("The league server could not verify your saved sign-in. Connect to the server and sign in again.");
+          }
+        }
+      }else{
+        runtimeAuthToken=null;
+        await SecureStore.deleteItemAsync("league_session");
+        await SecureStore.deleteItemAsync("league_player");
+      }
+    }catch{}
+    finally{setAuthReady(true);}
+  })();
+},[]);
+
+const refreshStandingsForSeason=async(seasonId:string)=>{
+  const mapped:Record<string,any[]>={};
+  for(const d of serverDivisions){try{const q=seasonId?`&season_id=${encodeURIComponent(seasonId)}`:"";const rows=await apiRequest(`/api/standings?division_id=${encodeURIComponent(String(d.id))}${q}`,{method:"GET"});if(Array.isArray(rows))mapped[d.name]=rows;}catch{}}
+  if(Object.keys(mapped).length)setServerStandings(mapped);
+};
+const refreshTournamentForSeason=async(seasonId:string,fallbackSource:any[]=serverMatches)=>{
+  const q=seasonId?`?season_id=${encodeURIComponent(seasonId)}`:"";
+  try{
+    const payload=await apiRequest(`/api/tournaments${q}`,{method:"GET"});
+    const rows=tournamentMatchesFromPayload(payload).filter((m:any)=>!seasonId||Number(m?.season_id||0)===Number(seasonId));
+    setServerTournamentMatches(rows);
+    setTournamentEndpointReady(true);
+  }catch{
+    const fallback=(Array.isArray(fallbackSource)?fallbackSource:[]).filter((m:any)=>isTournamentMatch(m)&&(!seasonId||Number(m?.season_id||0)===Number(seasonId)));
+    setServerTournamentMatches(fallback);
+    setTournamentEndpointReady(false);
+  }
+};
+const refreshServerData=async()=>{
+  try{
+    await apiRequest("/health",{method:"GET"});setServerOnline(true);
+    const[divisions,announcements,matches,seasonsPayload]=await Promise.all([apiRequest("/api/divisions"),apiRequest("/api/announcements"),apiRequest("/api/matches"),apiRequest("/api/seasons")]);
+    const divs=Array.isArray(divisions)?divisions:[];setServerDivisions(divs);if(Array.isArray(announcements))setServerAnnouncements(announcements);if(Array.isArray(matches))setServerMatches(matches);
+    const seasons=Array.isArray(seasonsPayload?.seasons)?seasonsPayload.seasons:[];setServerSeasons(seasons);const current=Number(seasonsPayload?.current_season_id||0);setCurrentSeasonId(current);setSelectedSeasonId(prev=>prev||String(current||seasons[0]?.id||""));
+    try{const rb=normalizeRulebook(await apiRequest("/api/rules"));setServerRulebook(rb);await SecureStore.setItemAsync("league_rules_cache",JSON.stringify(rb));}catch{try{const cached=await SecureStore.getItemAsync("league_rules_cache");if(cached)setServerRulebook(JSON.parse(cached));}catch{}}
+    try{const awards=await apiRequest("/api/awards");const earned=Array.isArray(awards)?awards:Array.isArray(awards?.earned)?awards.earned:[];setServerEarnedAwards(earned);const name=String(currentPlayer?.display_name||currentPlayer?.username||"");if(name)playerAwards[name]=earned.map((a:any)=>({type:String(a.type||a.code||"award"),count:Number(a.count||1)}));if(Array.isArray(awards?.catalog)){const cat=normalizeAwardCatalog(awards.catalog);if(cat.length){setServerAwardCatalog(cat);await SecureStore.setItemAsync("league_award_catalog_cache",JSON.stringify(cat));}}}catch{}
+    try{const cat=normalizeAwardCatalog(await apiRequest("/api/award-catalog"));if(cat.length){setServerAwardCatalog(cat);await SecureStore.setItemAsync("league_award_catalog_cache",JSON.stringify(cat));}}catch{try{const cached=await SecureStore.getItemAsync("league_award_catalog_cache");if(cached){const cat=JSON.parse(cached);if(Array.isArray(cat)&&cat.length)setServerAwardCatalog(cat)}}catch{}}
+    const mapped:Record<string,any[]>={};const sid=String(current||seasons[0]?.id||"");for(const d of divs){try{const q=sid?`&season_id=${encodeURIComponent(sid)}`:"";const rows=await apiRequest(`/api/standings?division_id=${encodeURIComponent(String(d.id))}${q}`,{method:"GET"});if(Array.isArray(rows))mapped[d.name]=rows;}catch{}}setServerStandings(mapped);
+    await refreshTournamentForSeason(sid,Array.isArray(matches)?matches:[]);
+  }catch{setServerOnline(false);}
+};
+useEffect(()=>{if(signedIn)refreshServerData();},[signedIn]);
+useEffect(()=>{if(signedIn&&selectedSeasonId){if(serverDivisions.length)refreshStandingsForSeason(selectedSeasonId);refreshTournamentForSeason(selectedSeasonId);}},[selectedSeasonId]);
+
+const setGlobalFontScale=async(scale:number)=>{
+  setFontScale(scale);
+  try{await SecureStore.setItemAsync("gui_font_scale",String(scale));}catch{}
+};
+
+const saveProfile=async()=>{
+  const profile={timeZone,profileImage};
+  try{await SecureStore.setItemAsync("player_profile",JSON.stringify(profile));}catch{}
+  Alert.alert("Profile saved","Your profile picture and time zone were saved on this device. Player name and screen name always come from the league server.");
+};
+
+const changeOwnPassword=async()=>{
+  setPasswordError("");
+  if(!currentPassword||!newPassword||!confirmPassword){setPasswordError("Fill in all three password fields.");return;}
+  if(newPassword.length<6){setPasswordError("New password must be at least 6 characters.");return;}
+  if(newPassword!==confirmPassword){setPasswordError("New password and confirmation do not match.");return;}
+  if(newPassword===currentPassword){setPasswordError("Choose a new password different from the current password.");return;}
+  setPasswordWorking(true);
+  try{
+    let changed:any=await apiRequest("/api/auth/change-password",{method:"POST",body:JSON.stringify({current_password:currentPassword,new_password:newPassword})});
+    let auth=changed;
+    if(!auth?.token||!auth?.player){
+      const username=String(currentPlayer?.username||await SecureStore.getItemAsync("league_username")||"").trim();
+      if(!username)throw new Error("Could not determine the signed-in username.");
+      auth=await apiRequest("/api/auth/login",{method:"POST",body:JSON.stringify({username,password:newPassword})});
+    }
+    if(!auth?.token||!auth?.player)throw new Error("The server changed the password but did not return a valid new session.");
+    runtimeAuthToken=auth.token;
+    await SecureStore.setItemAsync("league_session",auth.token);
+    await SecureStore.setItemAsync("league_player",JSON.stringify(auth.player));
+    const keep=await SecureStore.getItemAsync("league_keep_signed_in");
+    if(keep==="1")await SecureStore.setItemAsync("league_password",newPassword);
+    applyServerPlayer(auth.player);
+    setCurrentPassword("");setNewPassword("");setConfirmPassword("");
+    Alert.alert("Password changed","Your league password was changed on the server. Other old sessions are no longer valid.");
+  }catch(e:any){
+    const status=Number(e?.status||0);
+    const raw=String(e?.message||e||"");
+    if(status===404)setPasswordError("The app is ready, but the Windows server still needs the player change-password endpoint enabled.");
+    else if(status===401||raw.includes("invalid_credentials")||raw.includes("current_password"))setPasswordError("Current password is incorrect, or this session is no longer valid.");
+    else setPasswordError(`Could not change password: ${raw}`);
+  }finally{setPasswordWorking(false);}
+};
+
+const pickProfileImage=async()=>{
+  const permission=await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if(!permission.granted){Alert.alert("Permission needed","Photo access is needed to choose a profile picture.");return;}
+  const result=await ImagePicker.launchImageLibraryAsync({mediaTypes:["images"],allowsEditing:true,aspect:[1,1],quality:.8});
+  if(!result.canceled&&result.assets?.[0]?.uri)setProfileImage(result.assets[0].uri);
+};
+
+const pickMatchScreenshots=async(matchId:string)=>{
+  const permission=await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if(!permission.granted){
+    Alert.alert("Permission needed","Photo access is needed to upload AutoDarts match screenshots.");
+    return;
+  }
+  const result=await ImagePicker.launchImageLibraryAsync({
+    mediaTypes:["images"],
+    allowsMultipleSelection:true,
+    selectionLimit:10,
+    quality:1
+  });
+  if(!result.canceled&&result.assets?.length){
+    const uris=result.assets.map(a=>a.uri);
+    setMatchScreenshots(prev=>({...prev,[matchId]:uris}));
+    Alert.alert(
+      "Screenshots selected",
+      `${uris.length} screenshot${uris.length===1?"":"s"} ready for this match. When the server importer is connected, these will be uploaded for match-data reading.`
+    );
+  }
+};
+
+const wrap=(node:any)=><FontScaleContext.Provider value={fontScale}>{node}</FontScaleContext.Provider>;
+if(showSplash)return wrap(<Splash onDone={()=>setShowSplash(false)}/>);
+if(!authReady)return wrap(<SafeAreaView style={s.safe}><AmericanFlagBackground/><View style={s.signInOverlay}><View style={s.authCheckCard}><Text style={s.signInTitle}>VERIFYING SAVED SIGN-IN</Text><Text style={s.signInSub}>Checking your saved credentials against the league server…</Text></View></View></SafeAreaView>);
+if(!signedIn)return wrap(<SignIn initialMessage={autoSignInMessage} onSignedIn={(player:any)=>{applyServerPlayer(player);setSignedIn(true);setAutoSignInMessage("")}}/>);
+
+const openPlayer=(name:string)=>{setSelectedPlayer(name);setTab("PlayerStats")};
+const PlayerLink=({name}:{name:string})=><Pressable onPress={()=>openPlayer(name)}><Text style={s.inlinePlayerLink}>{name}</Text></Pressable>;
+const isCompletedMatch=(m:any)=>{const st=String(m?.status||"").toLowerCase();return st==="completed"||st==="approved"||m?.approved===true;};
+const visibleMatches=(selectedSeasonId?serverMatches.filter((m:any)=>Number(m.season_id)===Number(selectedSeasonId)):serverMatches);
+const upcomingMatches=visibleMatches.filter((m:any)=>!isCompletedMatch(m)&&String(m.status||"").toLowerCase()!=="void").sort((a:any,b:any)=>String(a.scheduled_at||"").localeCompare(String(b.scheduled_at||"")));
+const completedMatches=visibleMatches.filter((m:any)=>isCompletedMatch(m)).sort((a:any,b:any)=>String(b.scheduled_at||"").localeCompare(String(a.scheduled_at||"")));
+const currentSeasonMatches=currentSeasonId?serverMatches.filter((m:any)=>Number(m.season_id)===Number(currentSeasonId)):serverMatches;
+const homeUpcomingMatches=currentSeasonMatches.filter((m:any)=>!isCompletedMatch(m)&&String(m.status||"").toLowerCase()!=="void").sort((a:any,b:any)=>String(a.scheduled_at||"").localeCompare(String(b.scheduled_at||"")));
+const homeCompletedMatches=currentSeasonMatches.filter((m:any)=>isCompletedMatch(m)).sort((a:any,b:any)=>String(b.scheduled_at||"").localeCompare(String(a.scheduled_at||"")));
+const allLiveStandings=Object.values(serverStandings).flat() as any[];
+const myStanding=allLiveStandings.find((r:any)=>Number(r.player_id??r.id)===Number(currentPlayer?.id))||null;
+const playerStandingByName=(name:string)=>allLiveStandings.find((r:any)=>String(r.player??r.display_name??"").toLowerCase()===String(name||"").toLowerCase())||null;
+const matchResultForMe=(m:any)=>{const me=Number(currentPlayer?.id||0),p1=Number(m.player1_id||0),p2=Number(m.player2_id||0);const a=Number(m.player1_legs??0),b=Number(m.player2_legs??0);if(!me||(!p1&&!p2)||a===b)return"";const won=p1===me?a>b:p2===me?b>a:false;return won?"W":"L";};
+let body:any;
+if(tab==="Standings"){
+const liveRows=serverStandings[selectedDivision]||[];const standings=liveRows.map((r:any,i:number)=>[String(r.rank??i+1),String(r.player??r.display_name??"Player"),String(r.played??r.matches_played??0),String(r.wins??0),String(r.losses??0),String(Number(r.leg_difference??r.leg_diff??0)>=0?`+${Number(r.leg_difference??r.leg_diff??0)}`:Number(r.leg_difference??r.leg_diff??0)),String(r.points??0)]);const divisionOptions=serverDivisions.map((d:any)=>({value:String(d.name),label:String(d.name)}));const seasonOptions=serverSeasons.map((x:any)=>({value:String(x.id),label:`${x.name} (${x.year})${Number(x.id)===currentSeasonId?" • Current":""}`}));
+body=<ScrollView showsVerticalScrollIndicator={false}><Text style={s.title}>Standings</Text><ChoiceDropdown label="Division" value={selectedDivision} options={divisionOptions} onChange={setSelectedDivision}/><ChoiceDropdown label="Season" value={selectedSeasonId} options={seasonOptions} onChange={setSelectedSeasonId} placeholder="Current Season"/><View style={s.tableCard}><View style={[s.row,s.standingsHeader]}><Text style={[s.standCell,s.rankCell]}>RANK</Text><Text style={[s.standCell,s.nameCell]}>NAME</Text><Text style={s.standCell}>P</Text><Text style={s.standCell}>W</Text><Text style={s.standCell}>L</Text><Text style={[s.standCell,s.legsCell]}>LD</Text><Text style={s.standCell}>PTS</Text></View>{standings.length?standings.map((r:any)=><View key={`${r[0]}-${r[1]}`} style={s.row}><Text style={[s.standCell,s.rankCell]}>{r[0]}</Text><Pressable style={s.nameCell} onPress={()=>openPlayer(r[1])}><Text style={s.playerLink} numberOfLines={1}>{r[1]}</Text></Pressable><Text style={s.standCell}>{r[2]}</Text><Text style={s.standCell}>{r[3]}</Text><Text style={s.standCell}>{r[4]}</Text><Text style={[s.standCell,s.legsCell]}>{r[5]}</Text><Text style={s.standCell}>{r[6]}</Text></View>):<View style={s.emptyStateCard}><Text style={s.emptyStateTitle}>NO STANDINGS YET</Text><Text style={s.emptyStateText}>No standings are stored for this division and season yet.</Text></View>}<Text style={s.standingsKey}>P = Played   W = Wins   L = Losses   LD = Legs +/-   PTS = Points</Text></View></ScrollView>;}
+else if(tab==="Matches"){const seasonOptions=serverSeasons.map((x:any)=>({value:String(x.id),label:`${x.name} (${x.year})${Number(x.id)===currentSeasonId?" • Current":""}`}));body=<ScrollView showsVerticalScrollIndicator={false}><Text style={s.title}>My Matches</Text><ChoiceDropdown label="Season" value={selectedSeasonId} options={seasonOptions} onChange={setSelectedSeasonId} placeholder="Current Season"/><View style={s.managerNotice}><Text style={s.managerNoticeTitle}>RESULT SCREENSHOT RULE</Text><Text style={s.managerNoticeText}>Use the original AutoDarts result screenshot captured on the PC running AutoDarts. If needed, transfer that PC screenshot to your phone before selecting it here.</Text></View><Text style={s.statsSection}>UPCOMING</Text>{upcomingMatches.length?upcomingMatches.map((m:any)=>{const key=String(m.id);const opponent=neutralOpponent(m,currentPlayer?.id);return <View key={key} style={s.matchCard}><View style={s.matchCardRow}><View style={s.matchCardInfo}><Text style={s.matchDivision}>{String(m.division_name||currentPlayer?.division_name||"LEAGUE MATCH").toUpperCase()} • WEEK {m.week_no||"—"}</Text><View style={s.matchPlayersLeft}><Text style={s.matchSelfName}>{currentPlayer?.display_name||currentPlayer?.username||"YOU"}</Text><Text style={s.vsLarge}> VS </Text><PlayerLink name={String(opponent||"Opponent")}/></View><Text style={s.matchDateLeft}>{localMatchLabel(m,timeZone)}</Text><Text style={s.matchMetaLeft}>{m.stage&&m.stage!=="regular_season"?String(m.round_label||m.stage):"Regular Season"} • Best of {m.best_of||5} • Server scheduled</Text>{matchScreenshots[key]?.length?<Text style={s.uploadReady}>✓ {matchScreenshots[key].length} screenshot{matchScreenshots[key].length===1?"":"s"} selected</Text>:null}</View><Pressable style={s.uploadResultsButton} onPress={()=>pickMatchScreenshots(key)}><Text style={s.uploadResultsIcon}>⬆</Text><Text style={s.uploadResultsText}>UPLOAD</Text><Text style={s.uploadResultsText}>RESULTS</Text></Pressable></View></View>}):<View style={s.emptyStateCard}><Text style={s.emptyStateTitle}>NO UPCOMING MATCHES</Text><Text style={s.emptyStateText}>Server-generated matches for this season will appear here automatically.</Text></View>}<Text style={s.statsSection}>COMPLETED / HISTORY</Text>{completedMatches.length?completedMatches.map((m:any)=>{const me=Number(currentPlayer?.id||0),p1=Number(m.player1_id)===me;const opponent=p1?m.player2_name:m.player1_name;const myScore=p1?m.player1_legs:m.player2_legs;const oppScore=p1?m.player2_legs:m.player1_legs;const result=matchResultForMe(m);return <View key={String(m.id)} style={s.matchCard}><View style={s.matchCardInfo}><Text style={s.matchDivision}>{String(m.division_name||currentPlayer?.division_name||"LEAGUE MATCH").toUpperCase()} • WEEK {m.week_no||"—"}</Text><View style={s.matchPlayersLeft}><Text style={[s.matchResultLetter,result==="L"&&{color:"#ff5d67"}]}>{result||"•"}</Text><Text style={s.matchSelfName}>{currentPlayer?.display_name||currentPlayer?.username||"YOU"}</Text><Text style={s.vsLarge}> {myScore??"–"} - {oppScore??"–"} </Text><PlayerLink name={String(opponent||"Opponent")}/></View><Text style={s.matchDateLeft}>{localMatchLabel(m,timeZone)}</Text><Text style={s.matchMetaLeft}>Completed • Best of {m.best_of||5} • Stored on league server</Text></View></View>}):<View style={s.emptyStateCard}><Text style={s.emptyStateTitle}>NO COMPLETED MATCHES</Text><Text style={s.emptyStateText}>Completed matches for this season will stay stored on the server.</Text></View>}</ScrollView>;}
+else if(tab==="Tournament"){
+const seasonOptions=serverSeasons.map((x:any)=>({value:String(x.id),label:`${x.name} (${x.year})${Number(x.id)===currentSeasonId?" • Current":""}`}));
+const tournamentRows=serverTournamentMatches.filter((m:any)=>!selectedSeasonId||!m?.season_id||Number(m.season_id)===Number(selectedSeasonId));
+const groups:Record<string,any[]>={};for(const m of tournamentRows){const key=String(m?.division_name||m?.division||"League Tournament");(groups[key]||(groups[key]=[])).push(m);}
+const roundOrder=(m:any)=>{const r=String(m?.round_label||m?.round_name||m?.round||m?.stage||"").toLowerCase();if(r.includes("semi"))return 1;if(r.includes("quarter"))return 0;if(r.includes("final")||r.includes("championship"))return 2;return 1;};
+body=<ScrollView showsVerticalScrollIndicator={false}><Text style={s.title}>Tournament Brackets</Text><ChoiceDropdown label="Season" value={selectedSeasonId} options={seasonOptions} onChange={setSelectedSeasonId} placeholder="Current Season"/>{!tournamentEndpointReady?<View style={s.managerNotice}><Text style={s.managerNoticeTitle}>TOURNAMENT SERVER LINK PENDING</Text><Text style={s.managerNoticeText}>This page is already wired to the league server tournament endpoint. Until the next server update enables the full bracket feed, it can only show tournament matches already included in your personal match feed.</Text></View>:<View style={s.managerNotice}><Text style={s.managerNoticeTitle}>LIVE SERVER BRACKET</Text><Text style={s.managerNoticeText}>Tournament and division-playoff brackets are loaded from the league server. Schedule or bracket changes made on the server appear here automatically.</Text></View>}{Object.keys(groups).length?Object.entries(groups).map(([division,rows]:any)=><View key={division}><Text style={s.statsSection}>{String(division).toUpperCase()}</Text>{[...rows].sort((a:any,b:any)=>roundOrder(a)-roundOrder(b)||String(a?.scheduled_at||"").localeCompare(String(b?.scheduled_at||""))).map((m:any)=>{const done=isCompletedMatch(m);const p1=String(m?.player1_name||m?.player1||"TBD");const p2=String(m?.player2_name||m?.player2||"TBD");const score=done?`${m?.player1_legs??"–"} - ${m?.player2_legs??"–"}`:"VS";return <View key={String(m?.id||`${division}-${tournamentRoundLabel(m)}-${p1}-${p2}`)} style={s.matchCard}><View style={s.matchCardInfo}><Text style={s.matchDivision}>{tournamentRoundLabel(m).toUpperCase()}</Text><View style={s.matchPlayersLeft}><Text style={s.matchSelfName}>{p1}</Text><Text style={s.vsLarge}> {score} </Text><Text style={s.matchSelfName}>{p2}</Text></View><Text style={s.matchDateLeft}>{localMatchLabel(m,timeZone)}</Text><Text style={s.matchMetaLeft}>Best of {m?.best_of||5} • {done?"Completed":"Scheduled"} • Server bracket</Text></View></View>})}</View>):<View style={s.emptyStateCard}><Text style={s.emptyStateTitle}>NO TOURNAMENT BRACKET YET</Text><Text style={s.emptyStateText}>When the server creates division playoffs or another tournament for this season, the bracket will appear here automatically.</Text></View>}</ScrollView>;}
+else if(tab==="PlayerStats"&&selectedPlayer){
+const live=playerStandingByName(selectedPlayer);
+const played=Number(live?.played??live?.matches_played??0);
+const wins=Number(live?.wins??0);
+const losses=Number(live?.losses??0);
+const winPct=played?`${((wins/played)*100).toFixed(1)}%`:"0.0%";
+const selectedIsMe=String(selectedPlayer).toLowerCase()===String(currentPlayer?.display_name||currentPlayer?.username||"").toLowerCase();
+const recent=selectedIsMe?completedMatches.slice(0,5):[];
+body=<ScrollView showsVerticalScrollIndicator={false}>
+<View style={s.profileHeaderRow}><Pressable onPress={()=>setTab("Standings")} hitSlop={8}><Text style={s.profileBack}>‹</Text></Pressable><Text style={s.profilePageTitle}>PLAYER PROFILE</Text><Text style={s.profileMore}>•••</Text></View>
+<View style={s.profileHero}><View style={s.profileAvatarWrap}><View style={s.profileAvatarCircle}><Text style={s.profileAvatarInitial}>{selectedPlayer.slice(0,1).toUpperCase()}</Text></View></View><View style={s.profileHeroRight}><Text style={s.profileBigName}>{selectedPlayer.toUpperCase()}</Text><View style={s.profileAwardsLarge}><AwardsOnly name={selectedPlayer}/></View></View></View>
+<View style={s.profileMetaRow}><View style={s.profileMetaItem}><Text style={s.profileMetaIcon}>🛡</Text><Text style={s.profileMetaLabel}>DIVISION</Text><Text style={s.profileMetaValue}>{selectedIsMe?(currentPlayer?.division_name||"—"):selectedDivision}</Text></View><View style={s.profileMetaDivider}/><View style={s.profileMetaItem}><Text style={s.profileMetaIcon}>▥</Text><Text style={s.profileMetaLabel}>RANK</Text><Text style={s.profileMetaValue}>{live?.rank?`#${live.rank}`:"—"}</Text></View><View style={s.profileMetaDivider}/><View style={s.profileMetaItem}><Text style={s.profileMetaIcon}>▣</Text><Text style={s.profileMetaLabel}>MATCHES</Text><Text style={s.profileMetaValue}>{played}</Text></View><View style={s.profileMetaDivider}/><View style={s.profileMetaItem}><Text style={s.profileMetaIcon}>◷</Text><Text style={s.profileMetaLabel}>TIME ZONE</Text><Text style={s.profileMetaValue}>{selectedIsMe?(US_TIME_ZONES.find(z=>z.value===(currentPlayer?.timezone||timeZone))?.label||"—"):"—"}</Text></View></View>
+<View style={s.profileTabs}><Text style={[s.profileTab,s.profileTabActive]}>OVERVIEW</Text><Text style={s.profileTab}>MATCH HISTORY</Text><Text style={s.profileTab}>STATS DETAIL</Text><Text style={s.profileTab}>ACHIEVEMENTS</Text></View>
+<View style={s.profileSectionCard}><View style={s.profileSectionHeader}><Text style={s.profileSectionTitle}>SEASON STATS</Text><Text style={s.profileSeasonYear}>SERVER DATA</Text></View><View style={s.profileStatsMatrix}>{[["MATCHES",String(played),"#ffffff"],["WINS",String(wins),"#35c759"],["LOSSES",String(losses),"#ff5d67"],["WIN %",winPct,"#9b6cff"],["3-DART AVG","0.00","#2f80ed"],["FIRST 9","0.00","#f2c94c"],["CHECKOUT %","0.0%","#2ec4b6"],["HIGH FINISH","0","#ff453a"]].map((x:any,i:number)=><View key={i} style={s.profileStatBox}><Text style={s.profileStatLabel}>{x[0]}</Text><Text style={[s.profileStatValue,{color:x[2]}]}>{x[1]}</Text></View>)}</View><Text style={s.statsNote}>Only real server values are shown. Detailed dart statistics stay at zero until the server has imported recorded match-stat data.</Text></View>
+<View style={s.profileSectionCard}><View style={s.profileSectionHeader}><Text style={s.profileSectionTitle}>CAREER STATS</Text><Text style={s.profileSeasonYear}>SERVER DATA ONLY</Text></View><View style={s.profileStatsMatrix}>{[["MATCHES",String(played),"#ffffff"],["WINS",String(wins),"#35c759"],["LOSSES",String(losses),"#ff5d67"],["WIN %",winPct,"#9b6cff"],["3-DART AVG","0.00","#2f80ed"],["FIRST 9","0.00","#f2c94c"],["CHECKOUT %","0.0%","#2ec4b6"],["HIGH FINISH","0","#ff453a"]].map((x:any,i:number)=><View key={i} style={s.profileStatBox}><Text style={s.profileStatLabel}>{x[0]}</Text><Text style={[s.profileStatValue,{color:x[2]}]}>{x[1]}</Text></View>)}</View></View>
+<View style={s.profileSectionCard}><View style={s.profileRecentHeader}><Text style={s.profileSectionTitle}>RECENT MATCHES</Text></View>{recent.length?recent.map((m:any)=>{const me=Number(currentPlayer?.id||0);const isP1=Number(m.player1_id)===me;const opponent=isP1?m.player2_name:m.player1_name;const myScore=isP1?m.player1_legs:m.player2_legs;const oppScore=isP1?m.player2_legs:m.player1_legs;const result=matchResultForMe(m);return <View key={String(m.id)} style={s.profileMatchRow}><View style={[s.profileResultBadge,result==="L"&&s.profileResultLoss]}><Text style={s.profileResultText}>{result||"•"}</Text></View><View style={s.profileOpponentAvatar}><Text style={s.profileOpponentInitial}>{String(opponent||"?")[0]}</Text></View><View style={s.profileOpponentInfo}><Text style={s.profileOpponentName}>vs {opponent||"Opponent"}</Text><Text style={s.profileOpponentSub}>Server match record</Text></View><Text style={[s.profileScore,result==="L"&&{color:"#ff453a"}]}>{myScore??"–"} - {oppScore??"–"}</Text><View style={s.profileMatchDateWrap}><Text style={s.profileMatchDate}>{localMatchLabel(m,timeZone)}</Text><Text style={s.profileMatchType}>Completed</Text></View></View>}):<View style={s.emptyStateCard}><Text style={s.emptyStateTitle}>NO MATCH HISTORY AVAILABLE</Text><Text style={s.emptyStateText}>{selectedIsMe?"Completed server matches will appear here.":"The public app does not expose another player's private match feed."}</Text></View>}</View>
+</ScrollView>;
+}else if(tab==="Stats"){
+const played=Number(myStanding?.played??myStanding?.matches_played??0);
+const wins=Number(myStanding?.wins??0);
+const losses=Number(myStanding?.losses??0);
+const points=Number(myStanding?.points??0);
+body=<ScrollView showsVerticalScrollIndicator={false}>
+<Text style={s.title}>My Stats</Text>
+<Text style={s.statsSection}>MATCH RECORD</Text>
+<View style={s.statsGrid}>{[["PLAYED",String(played)],["WINS",String(wins)],["LOSSES",String(losses)],["POINTS",String(points)],["RANK",myStanding?.rank?`#${myStanding.rank}`:"—"]].map(x=><View key={x[0]} style={s.statsTile}><Text style={s.statsValue}>{x[1]}</Text><Text style={s.statsLabel}>{x[0]}</Text></View>)}</View>
+<Text style={s.statsSection}>AVERAGES & CHECKOUTS</Text>
+<View style={s.statsGrid}>{[["3-DART AVERAGE","0.00"],["AVG UNTIL 170","0.00"],["FIRST 9 DART AVG","0.00"],["CHECKOUT %","0.0%"],["HIGHEST CHECKOUT","0"]].map(x=><View key={x[0]} style={s.statsTile}><Text style={s.statsValue}>{x[1]}</Text><Text style={s.statsLabel}>{x[0]}</Text></View>)}</View>
+<Text style={s.statsSection}>3-DART TOTALS</Text>
+<View style={s.statsGrid}>{[["60+","0"],["100+","0"],["140+","0"],["170+","0"],["180","0"]].map(x=><View key={x[0]} style={s.statsTile}><Text style={s.statsValue}>{x[1]}</Text><Text style={s.statsLabel}>{x[0]}</Text></View>)}</View>
+<Text style={s.statsNote}>No sample or test statistics are used. Match record values come from the league server; detailed dart statistics remain zero until real imported match data is available.</Text>
+</ScrollView>;}
+else if(tab==="Settings")body=<ScrollView showsVerticalScrollIndicator={false}>
+<Text style={s.title}>Settings</Text>
+<Pressable style={s.settingsRow} onPress={()=>setTab("ProfileSetup")}><View><Text style={s.settingsTitle}>Profile Setup</Text><Text style={s.settingsSub}>Player name, profile and account preferences</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>
+<Pressable style={s.settingsRow} onPress={()=>setTab("FontSize")}><View><Text style={s.settingsTitle}>GUI Font Size</Text><Text style={s.settingsSub}>Adjust text size throughout the app</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>
+<Pressable style={s.settingsRow} onPress={()=>setTab("Security")}><View><Text style={s.settingsTitle}>Security</Text><Text style={s.settingsSub}>Change password and manage account security</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>
+<Pressable style={s.settingsRow} onPress={()=>setTab("LeagueRules")}><View><Text style={s.settingsTitle}>League Rules</Text><Text style={s.settingsSub}>View official US AutoDarts League rules</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>
+<Pressable style={s.settingsRow} onPress={()=>setTab("TrophyCase")}><View><Text style={s.settingsTitle}>Trophies</Text><Text style={s.settingsSub}>Pictures and meanings for every official trophy and badge</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>
+{serverRole==="manager"?<Pressable style={[s.settingsRow,s.managerSettingsRow]} onPress={()=>setTab("ManagerServer")}><View style={{flex:1}}><Text style={s.settingsTitle}>Server</Text><Text style={s.settingsSub}>Full league management • read/write access to the Windows server</Text></View><View style={s.managerNewPill}><Text style={s.managerNewText}>MANAGER</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>:serverRole==="moderator"?<Pressable style={[s.settingsRow,s.managerSettingsRow]} onPress={()=>setTab("ModeratorServer")}><View style={{flex:1}}><Text style={s.settingsTitle}>Server</Text><Text style={s.settingsSub}>Add players, reset passwords, reschedule generated matches, and enter results</Text></View><View style={s.managerNewPill}><Text style={s.managerNewText}>MODERATOR</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>:null}
+<Pressable style={s.settingsRow} onPress={()=>setTab("Contact")}><View><Text style={s.settingsTitle}>Contact</Text><Text style={s.settingsSub}>League support and contact information</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>
+</ScrollView>;
+else if(tab==="ProfileSetup")body=<ScrollView showsVerticalScrollIndicator={false}>
+<Pressable onPress={()=>setTab("Settings")}><Text style={s.backLink}>‹ BACK TO SETTINGS</Text></Pressable>
+<Text style={s.title}>Profile Setup</Text>
+<View style={s.settingsPanel}>
+<Text style={s.settingsTitle}>Player Profile</Text>
+<View style={s.profilePhotoRow}>
+<Pressable style={s.profilePhotoButton} onPress={pickProfileImage}>
+{profileImage?<Image source={{uri:profileImage}} style={s.profilePhoto}/>:<Text style={s.profilePhotoIcon}>📷</Text>}
+</Pressable>
+<View style={s.profilePhotoText}><Text style={s.securityLabel}>Profile Picture</Text><Text style={s.settingsSub}>Tap the picture to choose or crop a photo.</Text></View>
+</View>
+<Text style={s.securityLabel}>Player Name</Text>
+<TextInput value={playerName||currentPlayer?.display_name||""} editable={false} selectTextOnFocus={false} style={[s.profileInput,s.profileReadOnly]}/>
+<Text style={s.profileReadOnlyNote}>READ ONLY • MANAGED BY LEAGUE SERVER</Text>
+<Text style={s.securityLabel}>Screen Name</Text>
+<TextInput value={screenName||currentPlayer?.username||""} editable={false} selectTextOnFocus={false} style={[s.profileInput,s.profileReadOnly]}/>
+<Text style={s.profileReadOnlyNote}>READ ONLY • MANAGED BY LEAGUE SERVER</Text>
+<ChoiceDropdown label="Time Zone" value={timeZone} options={US_TIME_ZONES} onChange={setTimeZone}/>
+<Pressable style={s.securityButton} onPress={saveProfile}><Text style={s.securityButtonText}>SAVE PROFILE</Text></Pressable>
+</View>
+</ScrollView>;
+else if(tab==="FontSize")body=<ScrollView showsVerticalScrollIndicator={false}><Pressable onPress={()=>setTab("Settings")}><Text style={s.backLink}>‹ BACK TO SETTINGS</Text></Pressable><Text style={s.title}>GUI Font Size</Text><View style={s.settingsPanel}><ChoiceDropdown label="Display Size" value={String(fontScale)} options={[{value:"0.9",label:"Small"},{value:"1",label:"Normal"},{value:"1.15",label:"Large"}]} onChange={v=>setGlobalFontScale(Number(v))}/><Text style={[s.fontPreview,{fontSize:18*fontScale}]}>US AutoDarts League</Text></View></ScrollView>;
+else if(tab==="Security")body=<ScrollView showsVerticalScrollIndicator={false}><Pressable onPress={()=>setTab("Settings")}><Text style={s.backLink}>‹ BACK TO SETTINGS</Text></Pressable><Text style={s.title}>Security</Text><View style={s.settingsPanel}><Text style={s.settingsTitle}>Change Password</Text><Text style={s.settingsSub}>Change your own league password directly on the server. A successful change invalidates older sessions. If Keep me signed in is enabled, the new credential replaces the saved one in secure device storage.</Text><View style={s.securityItem}><Text style={s.securityLabel}>Current Password</Text><TextInput value={currentPassword} onChangeText={setCurrentPassword} placeholder="Current password" placeholderTextColor="#6f8597" style={s.signInInput} secureTextEntry autoCapitalize="none"/></View><View style={s.securityItem}><Text style={s.securityLabel}>New Password</Text><TextInput value={newPassword} onChangeText={setNewPassword} placeholder="New password" placeholderTextColor="#6f8597" style={s.signInInput} secureTextEntry autoCapitalize="none"/></View><View style={s.securityItem}><Text style={s.securityLabel}>Confirm New Password</Text><TextInput value={confirmPassword} onChangeText={setConfirmPassword} placeholder="Confirm new password" placeholderTextColor="#6f8597" style={s.signInInput} secureTextEntry autoCapitalize="none" onSubmitEditing={changeOwnPassword}/></View>{passwordError?<Text style={s.signInError}>{passwordError}</Text>:null}<Pressable style={[s.securityButton,passwordWorking&&{opacity:.65}]} onPress={changeOwnPassword} disabled={passwordWorking}><Text style={s.securityButtonText}>{passwordWorking?"CHANGING…":"CHANGE PASSWORD"}</Text></Pressable></View></ScrollView>;
+else if(tab==="LeagueRules")body=<ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.rulesPage}><Pressable onPress={()=>setTab("Settings")}><Text style={s.backLink}>‹ BACK TO SETTINGS</Text></Pressable><View style={s.rulesHero}><Text style={s.rulesKicker}>US AUTODARTS LEAGUE</Text><Text style={s.rulesHeroTitle}>OFFICIAL LEAGUE RULES</Text><Text style={s.rulesUpdated}>{serverRulebook.title} • {serverRulebook.version} • LIVE FROM SERVER</Text><View style={s.rulesFormatBar}><View style={s.rulesFormatItem}><Text style={s.rulesFormatValue}>501</Text><Text style={s.rulesFormatLabel}>DOUBLE OUT</Text></View><View style={s.rulesFormatDivider}/><View style={s.rulesFormatItem}><Text style={s.rulesFormatValue}>BO5</Text><Text style={s.rulesFormatLabel}>FIRST TO 3</Text></View><View style={s.rulesFormatDivider}/><View style={s.rulesFormatItem}><Text style={s.rulesFormatValue}>3 PTS</Text><Text style={s.rulesFormatLabel}>MATCH WIN</Text></View></View><Text style={s.rulesHeroNote}>This page reads the rulebook directly from the league server. New server rules populate here without rebuilding the APK.</Text></View><View style={s.rulesSectionHeadingRow}><Text style={s.rulesSectionHeading}>LEAGUE RULEBOOK</Text><Text style={s.rulesSectionCount}>{serverRulebook.sections.length} SECTIONS</Text></View>{serverRulebook.sections.map((rule:any)=><RuleCard key={rule.n} rule={rule}/>)}<View style={s.rulesAuthorityCard}><View style={s.rulesAuthorityTop}><Text style={s.rulesAuthorityIcon}>◈</Text><Text style={s.rulesAuthorityTitle}>SERVER-AUTHORITATIVE RULES</Text></View><Text style={s.rulesAuthorityText}>The server is the source of truth. The last successfully downloaded rulebook is cached only as an offline fallback.</Text></View></ScrollView>;
+else if(tab==="TrophyCase")body=<TrophyCase onBack={()=>setTab("Settings")} catalog={serverAwardCatalog} earned={serverEarnedAwards}/>;
+else if(tab==="ModeratorServer")body=<ModeratorServerPanel currentPlayer={currentPlayer} onBack={()=>setTab("Settings")}/>;
+else if(tab==="ManagerServer")body=<ManagerServerPanel currentPlayer={currentPlayer} onBack={()=>setTab("Settings")}/>;
+else if(tab==="Contact")body=<ScrollView showsVerticalScrollIndicator={false}><Pressable onPress={()=>setTab("Settings")}><Text style={s.backLink}>‹ BACK TO SETTINGS</Text></Pressable><Text style={s.title}>Contact</Text><View style={s.settingsPanel}><Text style={s.settingsTitle}>US AutoDarts League Support</Text><Text style={s.settingsSub}>We can add league email, Discord, website and administrator contact options here when those details are finalized.</Text></View></ScrollView>;
+else body=<ScrollView showsVerticalScrollIndicator={false}>
+<View style={s.homeTop}><Text style={s.homeWelcomeSmall}>WELCOME BACK,</Text><Text style={s.homeWelcomeBig}>{(currentPlayer?.display_name||playerName||"PLAYER").toUpperCase()}!</Text><Text style={s.homeDivision}>{currentPlayer?.division_name||"Unassigned"}</Text></View>
+<View style={s.serverStatusCard}><View style={[s.serverDot,{backgroundColor:serverOnline===true?"#39d353":serverOnline===false?"#ff453a":"#f2c94c"}]}/><View style={{flex:1}}><Text style={s.serverStatusTitle}>{serverOnline===true?"SERVER CONNECTED":serverOnline===false?"SERVER OFFLINE":"CHECKING SERVER"}</Text><Text style={s.serverStatusUrl}>{API_BASE_URL}</Text></View><Pressable onPress={refreshServerData} hitSlop={8}><Text style={s.serverRefresh}>↻</Text></Pressable></View>
+<View style={s.heroCompact}><Text style={s.brandUS}>US</Text><Text style={s.brandAuto}>AUTODARTS</Text><Text style={s.brandLeague}>LEAGUE</Text></View>
+<View style={s.quickGrid}><Pressable style={s.quickTile} onPress={()=>setTab("Stats")}><Text style={s.quickIcon}>📊</Text><Text style={s.quickText}>My Stats</Text></Pressable><Pressable style={s.quickTile} onPress={()=>setTab("Standings")}><Text style={s.quickIcon}>🏆</Text><Text style={s.quickText}>Standings</Text></Pressable><Pressable style={s.quickTile} onPress={()=>setTab("Matches")}><Text style={s.quickIcon}>🎯</Text><Text style={s.quickText}>Matches</Text></Pressable><Pressable style={s.quickTile} onPress={()=>setTab("Matches")}><Text style={s.quickIcon}>📅</Text><Text style={s.quickText}>Schedule</Text></Pressable></View>
+{homeUpcomingMatches.length?(()=>{const m=homeUpcomingMatches[0];const opponent=neutralOpponent(m,currentPlayer?.id);return <View style={s.previewCard}><Text style={s.previewCardLabel}>NEXT MATCH</Text><View style={s.matchPlayersLarge}><Text style={s.matchSelfName}>{currentPlayer?.display_name||currentPlayer?.username||"YOU"}</Text><Text style={s.vsLarge}> VS </Text><PlayerLink name={String(opponent||"Opponent")}/></View><Text style={s.matchDate}>{localMatchLabel(m,timeZone)}</Text><Text style={s.matchMeta}>{m.division_name||currentPlayer?.division_name||"League Match"} • Week {m.week_no||"—"} • Best of {m.best_of||5} legs</Text></View>})():<View style={s.previewCard}><Text style={s.previewCardLabel}>NEXT MATCH</Text><Text style={s.emptyStateTitle}>NO UPCOMING MATCH</Text><Text style={s.emptyStateText}>The server has not scheduled another match for your account yet.</Text></View>}
+<View style={s.previewCard}><Text style={s.previewCardLabel}>YOUR 3-DART AVERAGE</Text><Text style={s.previewAverage}>0.00</Text><Text style={s.previewSub}>NO IMPORTED DART STATS YET</Text></View>
+<View style={s.previewStatRow}><View style={s.previewMini}><Text style={s.previewMiniValue}>{String(myStanding?.wins??0)}</Text><Text style={s.previewMiniLabel}>WINS</Text></View><View style={s.previewMini}><Text style={s.previewMiniValue}>{String(myStanding?.losses??0)}</Text><Text style={s.previewMiniLabel}>LOSSES</Text></View><View style={s.previewMini}><Text style={s.previewMiniValue}>{myStanding?.rank?`#${myStanding.rank}`:"—"}</Text><Text style={s.previewMiniLabel}>RANK</Text></View></View>
+<View style={s.previewStatRow}><View style={s.previewMini}><Text style={s.previewMiniValue}>0</Text><Text style={s.previewMiniLabel}>180s</Text></View><View style={s.previewMini}><Text style={s.previewMiniValue}>0</Text><Text style={s.previewMiniLabel}>HIGH CO</Text></View><View style={s.previewMini}><Text style={s.previewMiniValue}>0</Text><Text style={s.previewMiniLabel}>BEST LEG</Text></View></View>
+<View style={s.previewCard}><Text style={s.previewCardLabel}>RECENT FORM</Text>{homeCompletedMatches.length?<View style={s.form}>{homeCompletedMatches.slice(0,5).map((m:any,i:number)=>{const x=matchResultForMe(m)||"•";return <View key={String(m.id||i)} style={[s.badge,x==="L"&&{backgroundColor:"#ef3d3d"},x==="•"&&{backgroundColor:"#566474"}]}><Text style={s.bold}>{x}</Text></View>})}</View>:<Text style={s.emptyStateText}>No completed server matches yet.</Text>}</View>
+</ScrollView>;
+return wrap(<SafeAreaView style={s.safe}><AmericanFlagBackground/><View style={s.appOverlay} {...appPanResponder.panHandlers}><View style={s.header}><Text style={s.bold}>US AUTODARTS LEAGUE</Text>{tab==="Home"?<Pressable hitSlop={12} style={s.gearButton} onPress={()=>setTab("Settings")} accessibilityRole="button" accessibilityLabel="Open settings"><Text style={s.gearIcon}>⚙</Text></Pressable>:<View style={s.headerSpacer}/>}</View><View style={s.content}>{body}</View><View style={s.nav}>{[["Home","⌂"],["Matches","🎯"],["Tournament","🏅"],["Standings","🏆"],["Stats","📊"]].map(x=><Pressable key={x[0]} style={s.navI} onPress={()=>setTab(x[0])}><Text style={s.navIcon}>{x[1]}</Text><Text style={[s.muted,tab===x[0]&&{color:"#ef3d3d"}]}>{x[0]}</Text></Pressable>)}</View></View></SafeAreaView>)}
+
+
+function PlayerNameWithAwards({name,onPress,compact=false}:{name:string;onPress:()=>void;compact?:boolean}){
+  const awards=(playerAwards[name]||[]);
+  const[rowWidth,setRowWidth]=useState(0);
+  const[nameWidth,setNameWidth]=useState(0);
+
+  const awardWidth=compact?18:26;
+  const plusWidth=compact?12:16;
+  const gap=4;
+  const available=Math.max(0,rowWidth-nameWidth-gap);
+
+  let visibleCount=awards.length;
+  let hasMore=false;
+
+  if(rowWidth>0&&nameWidth>0){
+    const allWidth=awards.length*awardWidth;
+    if(allWidth>available){
+      hasMore=true;
+      visibleCount=Math.max(0,Math.floor((available-plusWidth)/awardWidth));
+    }
+  }
+
+  const visible=awards.slice(0,visibleCount);
+
+  return <View
+    style={s.playerNameAwardsRow}
+    onLayout={e=>setRowWidth(e.nativeEvent.layout.width)}
+  >
+    <Pressable
+      onPress={onPress}
+      hitSlop={6}
+      onLayout={e=>setNameWidth(e.nativeEvent.layout.width)}
+    >
+      <Text style={[s.inlinePlayerLink,compact&&s.inlinePlayerLinkCompact]} numberOfLines={1}>{name}</Text>
+    </Pressable>
+
+    <View style={s.awardsInline}>
+      {visible.map((a:any,i:number)=><AwardMark key={`${a[0]}-${i}`} type={a[0]} count={a[1]} compact={compact}/>)}
+      {hasMore?<Pressable onPress={onPress} hitSlop={6}><Text style={[s.awardPlus,compact&&s.awardPlusCompact]}>+</Text></Pressable>:null}
+    </View>
+  </View>
+}
+
+function AwardsOnly({name}:{name:string}){
+  const awards=(playerAwards[name]||[]);
+  const[rowWidth,setRowWidth]=useState(0);
+  const[expanded,setExpanded]=useState(false);
+
+  // Actual profile award slot is 50 px (46 width + 4 margin).
+  const awardSlot=50;
+  const plusSlot=28;
+  const allWidth=awards.length*awardSlot;
+  const hasMore=rowWidth>0&&allWidth>rowWidth;
+  const collapsedCount=hasMore?Math.max(1,Math.floor((rowWidth-plusSlot)/awardSlot)):awards.length;
+  const visible=expanded?awards:awards.slice(0,collapsedCount);
+
+  return <View style={s.profileAwardsArea}>
+    <View
+      style={[s.profileAwardsOnlyRow,expanded&&s.profileAwardsExpandedRow]}
+      onLayout={e=>setRowWidth(e.nativeEvent.layout.width)}
+    >
+      {visible.map((a:any,i:number)=><AwardMark key={`${a[0]}-${i}`} type={a[0]} count={a[1]} profileLarge/>)}
+      {!expanded&&hasMore?<Pressable
+        onPress={()=>setExpanded(true)}
+        hitSlop={10}
+        accessibilityRole="button"
+        accessibilityLabel={`Show ${awards.length-collapsedCount} more awards`}
+        style={s.profileAwardPlusButton}
+      ><Text style={s.profileAwardPlus}>+</Text></Pressable>:null}
+    </View>
+    {expanded&&hasMore?<Pressable onPress={()=>setExpanded(false)} hitSlop={8} style={s.profileAwardsCloseButton}>
+      <Text style={s.profileAwardsCloseText}>SHOW LESS  −</Text>
+    </Pressable>:null}
+  </View>
+}
+
+function awardImageSource(type:string){
+  if(type==="goldCup")return require("./assets/award-gold-cup.png");
+  if(type==="silverCup")return require("./assets/award-silver-cup.png");
+  if(type==="diamondCup")return require("./assets/award-diamond-cup.png");
+  if(type==="most180s")return require("./assets/award-most-180s.png");
+  if(type==="highestAverage")return require("./assets/award-highest-average.png");
+  if(type==="highestCheckout")return require("./assets/award-highest-checkout.png");
+  if(type==="bestCheckoutPct")return require("./assets/award-best-checkout-pct.png");
+  if(type==="bestLeg")return require("./assets/award-best-leg.png");
+  if(type==="mostWins")return require("./assets/award-most-wins.png");
+  if(type==="nineDart")return require("./assets/award-9-dart.png");
+  if(type==="twelveDart")return require("./assets/award-12-dart.png");
+  if(type==="fifteenDart")return require("./assets/award-15-dart.png");
+  if(type==="checkout170")return require("./assets/award-170-checkout.png");
+  if(type==="checkout100Plus")return require("./assets/award-100-plus-checkout.png");
+  if(type==="first180")return require("./assets/award-first-180.png");
+  if(type==="career180_50")return require("./assets/award-50-career-180s.png");
+  if(type==="career180_100")return require("./assets/award-100-career-180s.png");
+  if(type==="winStreak")return require("./assets/award-win-streak.png");
+  if(type==="promotion")return require("./assets/award-promotion.png");
+  if(type==="fiveSeasons")return require("./assets/award-5-seasons.png");
+  if(type==="tenSeasons")return require("./assets/award-10-seasons.png");
+  if(type==="matches100")return require("./assets/award-100-matches.png");
+  if(type==="matches250")return require("./assets/award-250-matches.png");
+  if(type==="perfectSeason")return require("./assets/award-perfect-season.png");
+  if(type==="undefeatedSeason")return require("./assets/award-undefeated-season.png");
+  // Compatibility fallback for old locally cached demo award names.
+  if(type==="seasonChampion")return require("./assets/award-silver-cup.png");
+  if(type==="performance")return require("./assets/award-most-180s.png");
+  return require("./assets/award-badge.png");
+}
+
+function AwardMark({type,count,compact=false,profileLarge=false}:{type:string;count:number;compact?:boolean;profileLarge?:boolean}){
+  return <View style={[
+    s.awardWrap,
+    compact&&s.awardWrapCompact,
+    profileLarge&&s.awardWrapProfile
+  ]}>
+    <Image source={awardImageSource(type)} resizeMode="contain" style={[
+      s.awardGraphic,
+      compact&&s.awardGraphicCompact,
+      profileLarge&&s.awardGraphicProfile
+    ]}/>
+    <Text style={[
+      s.awardCount,
+      compact&&s.awardCountCompact,
+      profileLarge&&s.awardCountProfile
+    ]}>{count}</Text>
+  </View>
+}
+
+function AwardArtwork({award,style}:{award:any;style:any}){const remote=absoluteAwardUrl(award?.image_url);const[useRemote,setUseRemote]=useState(Boolean(remote));return <Image source={useRemote?{uri:remote}:awardImageSource(String(award?.type||"award"))} onError={()=>setUseRemote(false)} resizeMode="contain" style={style}/>}
+function TrophyCase({onBack,catalog,earned}:{onBack:()=>void;catalog:any[];earned:any[]}){
+  const official=(Array.isArray(catalog)&&catalog.length?catalog:bundledAwardCatalog).filter((a:any)=>a.active!==false);const earnedRows=Array.isArray(earned)?earned:[];const earnedMap=new Map(earnedRows.map((a:any)=>[String(a.type),a]));const categories=["Championship Trophies","Performance Awards","Special Achievements",...Array.from(new Set(official.map((a:any)=>a.category))).filter((x:any)=>!["Championship Trophies","Performance Awards","Special Achievements"].includes(String(x)))];
+  return <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.trophyCasePage}><Pressable onPress={onBack}><Text style={s.backLink}>‹ BACK TO SETTINGS</Text></Pressable><View style={s.trophyHero}><Text style={s.trophyKicker}>US AUTODARTS LEAGUE</Text><Text style={s.trophyHeroTitle}>TROPHIES & BADGES</Text><Text style={s.trophyHeroCount}>{official.length} OFFICIAL AWARDS</Text><Text style={s.trophyHeroSub}>Your earned awards come from the league server. The official catalog below also syncs from the server when the server catalog endpoint is available; bundled artwork remains the fallback for the current set.</Text></View><View style={s.trophySection}><View style={s.trophySectionHeadingRow}><Text style={s.trophySectionTitle}>YOUR AWARDS</Text><View style={s.trophySectionLine}/></View>{earnedRows.length?<View style={s.trophyGrid}>{earnedRows.map((e:any)=>{const a=official.find((x:any)=>String(x.type)===String(e.type))||{type:e.type,name:e.name||e.type,category:"Earned Award",detail:"Award earned and stored on the league server.",image_url:e.image_url};return <View key={String(e.id||e.type)} style={s.trophyCard}><View style={s.trophyImageWrap}><View><AwardArtwork award={a} style={s.trophyImage}/><Text style={s.awardCountProfile}>{Number(e.count||1)}</Text></View></View><View style={s.trophyCardText}><Text style={s.trophyName}>{a.name}</Text><Text style={s.trophyMeaningLabel}>EARNED • COUNT {Number(e.count||1)}</Text><Text style={s.trophyDetail}>{a.detail}</Text></View></View>})}</View>:<View style={s.emptyStateCard}><Text style={s.emptyStateTitle}>NO AWARDS YET</Text><Text style={s.emptyStateText}>Awards earned on the league server will appear here automatically.</Text></View>}</View><View style={s.trophySectionHeadingRow}><Text style={s.trophySectionTitle}>AVAILABLE / OFFICIAL AWARDS</Text><View style={s.trophySectionLine}/></View>{categories.map(category=><View key={category} style={s.trophySection}><View style={s.trophySectionHeadingRow}><Text style={s.trophySectionTitle}>{String(category).toUpperCase()}</Text><View style={s.trophySectionLine}/></View><View style={s.trophyGrid}>{official.filter((a:any)=>a.category===category).map((a:any)=><View key={a.type} style={s.trophyCard}><View style={s.trophyImageWrap}><AwardArtwork award={a} style={s.trophyImage}/></View><View style={s.trophyCardText}><Text style={s.trophyName}>{a.name}{earnedMap.has(String(a.type))?`  ✓ x${Number(earnedMap.get(String(a.type))?.count||1)}`:""}</Text><Text style={s.trophyMeaningLabel}>WHAT IT'S FOR / HOW TO EARN</Text><Text style={s.trophyDetail}>{a.detail}</Text></View></View>)}</View></View>)}<View style={s.trophyPermanentNote}><Text style={s.trophyPermanentTitle}>SERVER-LINKED CATALOG</Text><Text style={s.trophyPermanentText}>New server-defined awards and server-hosted artwork can appear here without a future APK rebuild. Existing bundled artwork stays unchanged unless the server supplies an override.</Text></View></ScrollView>;
+}
+
+function SignIn({onSignedIn,initialMessage=""}:{onSignedIn:(player:any)=>void;initialMessage?:string}){
+  const[username,setUsername]=useState("");
+  const[password,setPassword]=useState("");
+  const[keepSignedIn,setKeepSignedIn]=useState(true);
+  const[error,setError]=useState(initialMessage);
+  const[working,setWorking]=useState(false);
+
+  useEffect(()=>{
+    (async()=>{
+      try{const saved=await SecureStore.getItemAsync("league_username");if(saved)setUsername(saved);}catch{}
+    })();
+  },[]);
+
+  const signIn=async()=>{
+    if(!username.trim()||!password){setError("Enter the username and password supplied through the league manager.");return;}
+    setError("");setWorking(true);
+    try{
+      const auth=await apiRequest("/api/auth/login",{method:"POST",body:JSON.stringify({username:username.trim(),password})});
+      if(!auth?.token||!auth?.player)throw new Error("The server returned an invalid login response.");
+      runtimeAuthToken=auth.token;
+      if(keepSignedIn){
+        await SecureStore.setItemAsync("league_session",auth.token);
+        await SecureStore.setItemAsync("league_player",JSON.stringify(auth.player));
+        await SecureStore.setItemAsync("league_username",username.trim());
+        await SecureStore.setItemAsync("league_password",password);
+        await SecureStore.setItemAsync("league_keep_signed_in","1");
+      }else{
+        await SecureStore.deleteItemAsync("league_session");
+        await SecureStore.deleteItemAsync("league_player");
+        await SecureStore.deleteItemAsync("league_password");
+        await SecureStore.deleteItemAsync("league_keep_signed_in");
+        await SecureStore.setItemAsync("league_username",username.trim());
+      }
+      setPassword("");
+      onSignedIn(auth.player);
+    }catch(e:any){
+      const raw=String(e?.message||e||"");
+      if(raw.includes("AbortError")||raw.toLowerCase().includes("network"))setError("Cannot reach the league server yet. The app is configured correctly, but the Cloudflare tunnel/API must be online before sign-in will work.");
+      else if(raw.includes("invalid_credentials"))setError("Username or password is incorrect.");
+      else setError(`Could not sign in: ${raw}`);
+    }finally{setWorking(false);}
+  };
+
+  return <SafeAreaView style={s.safe}>
+    <AmericanFlagBackground/>
+    <View style={s.signInOverlay}>
+      <ScrollView contentContainerStyle={s.signInContent} keyboardShouldPersistTaps="handled">
+        <Image source={require("./assets/splash-logo.png")} resizeMode="contain" style={s.signInLogo}/>
+        <View style={s.signInCard}>
+          <Text style={s.signInTitle}>LEAGUE SIGN IN</Text>
+          <Text style={s.signInSub}>Sign in with the league username and password created in the Server Manager. Your server role automatically controls which tools are visible.</Text>
+          <Text style={s.securityLabel}>Username</Text>
+          <TextInput value={username} onChangeText={setUsername} placeholder="League username" placeholderTextColor="#6f8597" style={s.signInInput} autoCapitalize="none" autoCorrect={false}/>
+          <Text style={s.securityLabel}>Password</Text>
+          <TextInput value={password} onChangeText={setPassword} placeholder="Password" placeholderTextColor="#6f8597" style={s.signInInput} secureTextEntry autoCapitalize="none" onSubmitEditing={signIn}/>
+          <Pressable style={s.keepRow} onPress={()=>setKeepSignedIn(!keepSignedIn)}>
+            <View style={[s.checkBox,keepSignedIn&&s.checkBoxOn]}>{keepSignedIn?<Text style={s.checkMark}>✓</Text>:null}</View>
+            <Text style={s.keepText}>Keep me signed in</Text>
+          </Pressable>
+          {error?<Text style={s.signInError}>{error}</Text>:null}
+          <Pressable style={[s.signInButton,working&&{opacity:.65}]} onPress={signIn} disabled={working}><Text style={s.securityButtonText}>{working?"CONNECTING…":"SIGN IN"}</Text></Pressable>
+          <Text style={s.signInNote}>Production server: {API_BASE_URL}{"\n"}When “Keep me signed in” is enabled, the username and password are kept in the device's secure credential storage and are re-checked against the league server every time the app starts. Password resets and disabled accounts therefore stop automatic sign-in.</Text>
+        </View>
+      </ScrollView>
+    </View>
+  </SafeAreaView>
+}
+function Splash({onDone}:{onDone:()=>void}){
+  const fade=useRef(new Animated.Value(1)).current;
+  useEffect(()=>{
+    const t=setTimeout(()=>{
+      Animated.timing(fade,{toValue:0,duration:400,useNativeDriver:true})
+        .start(()=>onDone());
+    },3400);
+    return()=>clearTimeout(t);
+  },[]);
+  return <Animated.View style={[s.splash,{opacity:fade}]}>
+    <AmericanFlagBackground/>
+    <View style={s.splashShade}/>
+    <Animated.Image
+      source={require("./assets/splash-logo.png")}
+      resizeMode="contain"
+      style={s.splashImg}
+    />
+    <View style={s.loadingWrap}>
+      <View style={s.loadingTrack}><View style={s.loadingFill}/></View>
+      <Text style={s.loadingText}>Loading...</Text>
+    </View>
+  </Animated.View>
+}
+function AmericanFlagBackground(){
+  return <ImageBackground
+    source={require("./assets/wavy-flag-bg.jpg")}
+    resizeMode="cover"
+    style={s.flagBg}
+    imageStyle={s.flagImage}
+    pointerEvents="none"
+  >
+    <View style={s.flagDim}/>
+  </ImageBackground>
+}
+
+function Card({children}:{children:React.ReactNode}){return <View style={s.card}>{children}</View>}
+const s=StyleSheet.create({safe:{flex:1,backgroundColor:"transparent"},splash:{flex:1,backgroundColor:"transparent",alignItems:"center",justifyContent:"center",overflow:"hidden"},splashImg:{width:"92%",height:"68%",zIndex:3,marginTop:-30},header:{height:82,paddingTop:22,paddingHorizontal:18,flexDirection:"row",alignItems:"center",justifyContent:"space-between",borderBottomWidth:1,borderBottomColor:"rgba(255,255,255,.14)",backgroundColor:"rgba(2,8,18,.72)",zIndex:20},content:{flex:1,padding:16},hero:{alignItems:"center",paddingVertical:12},logo:{color:"#fff",fontSize:32,fontWeight:"900"},logo2:{color:"#fff",fontSize:23,fontWeight:"900",letterSpacing:2},logo3:{color:"#ef3d3d",fontSize:23,fontWeight:"900",letterSpacing:3},season:{color:"#3ea4ff",marginTop:10,fontWeight:"800"},welcome:{color:"#fff",fontSize:20,fontWeight:"900",marginTop:4},muted:{color:"#8ea3b5",fontSize:12},card:{backgroundColor:"rgba(7,22,36,.84)",borderWidth:1,borderColor:"#1b3850",borderRadius:14,padding:14,marginVertical:5},red:{color:"#ef3d3d",fontWeight:"900"},avg:{color:"#fff",fontSize:52,fontWeight:"900"},statGrid:{flexDirection:"row",flexWrap:"wrap",gap:8,marginVertical:7},mini:{width:"31.5%",height:74,backgroundColor:"rgba(7,22,36,.84)",borderWidth:1,borderColor:"#1b3850",borderRadius:12,alignItems:"center",justifyContent:"center"},miniV:{color:"#fff",fontSize:23,fontWeight:"900"},form:{flexDirection:"row",gap:9,marginTop:6},badge:{width:36,height:36,borderRadius:18,backgroundColor:"#126bd6",alignItems:"center",justifyContent:"center"},bold:{color:"#fff",fontWeight:"900"},match:{color:"#fff",fontSize:19,fontWeight:"800",marginVertical:6},nav:{height:70,borderTopWidth:1,borderTopColor:"rgba(255,255,255,.14)",flexDirection:"row",backgroundColor:"rgba(2,8,18,.8)"},navI:{flex:1,alignItems:"center",paddingTop:8},navIcon:{fontSize:20},title:{color:"#fff",fontSize:28,fontWeight:"900",marginBottom:12},row:{flexDirection:"row",paddingVertical:12,borderBottomWidth:1,borderBottomColor:"#193047"},cell:{color:"#ddd",flex:1,textAlign:"center"},stat:{color:"#fff",fontSize:36,fontWeight:"900"},
+compactCard:{backgroundColor:"rgba(7,22,36,.84)",borderWidth:1,borderColor:"#1b3850",borderRadius:14,paddingVertical:13,paddingHorizontal:16,marginVertical:5},
+compactRed:{color:"#ef3d3d",fontWeight:"900",fontSize:13,marginBottom:2},
+compactMatch:{color:"#fff",fontSize:17,fontWeight:"800",marginVertical:2},
+compactMuted:{color:"#8ea3b5",fontSize:11,lineHeight:14},
+compactAvg:{color:"#fff",fontSize:46,fontWeight:"900",lineHeight:50}
+,
+statsSection:{color:"#ef3d3d",fontWeight:"900",fontSize:12,letterSpacing:1,marginTop:4,marginBottom:8},
+statsGrid:{flexDirection:"row",flexWrap:"wrap",gap:8,marginBottom:14},
+statsTile:{width:"31.5%",minHeight:82,backgroundColor:"rgba(7,22,36,.84)",borderWidth:1,borderColor:"#1b3850",borderRadius:12,alignItems:"center",justifyContent:"center",padding:8},
+statsValue:{color:"#fff",fontSize:22,fontWeight:"900"},
+statsLabel:{color:"#8ea3b5",fontSize:9,fontWeight:"800",textAlign:"center",marginTop:4},
+statsNote:{color:"#6f8597",fontSize:10,textAlign:"center",marginVertical:8}
+,
+tableCard:{backgroundColor:"rgba(7,22,36,.84)",borderWidth:1,borderColor:"#1b3850",borderRadius:12,overflow:"hidden"},
+standingsHeader:{backgroundColor:"rgba(16,38,58,.9)"},
+standCell:{color:"#dce7ef",flex:0.62,textAlign:"center",fontSize:10,fontWeight:"700"},
+rankCell:{flex:0.9},
+nameCell:{flex:2.2,textAlign:"left",paddingLeft:3},
+legsCell:{flex:0.75},
+standingsKey:{color:"#6f8597",fontSize:8,textAlign:"center",paddingVertical:9,paddingHorizontal:4}
+,
+playerLink:{color:"#3ea4ff",fontSize:10,fontWeight:"800",textDecorationLine:"underline",paddingLeft:3},
+backLink:{color:"#3ea4ff",fontSize:11,fontWeight:"900",marginBottom:10}
+,
+matchPlayers:{flexDirection:"row",alignItems:"center",flexWrap:"wrap",marginVertical:2},
+inlinePlayerLink:{color:"#3ea4ff",fontSize:17,fontWeight:"800",textDecorationLine:"underline"},
+vsText:{color:"#fff",fontSize:17,fontWeight:"800"}
+,
+divisionControl:{marginBottom:12},
+divisionLabel:{color:"#8ea3b5",fontSize:10,fontWeight:"900",letterSpacing:1,marginBottom:5},
+divisionDropdown:{backgroundColor:"rgba(7,22,36,.84)",borderWidth:1,borderColor:"#1b3850",borderRadius:10,paddingVertical:11,paddingHorizontal:13,flexDirection:"row",alignItems:"center",justifyContent:"space-between"},
+divisionValue:{color:"#fff",fontSize:15,fontWeight:"800"},
+divisionArrow:{color:"#3ea4ff",fontSize:12},
+divisionChoice:{backgroundColor:"rgba(7,22,36,.84)",borderWidth:1,borderColor:"#1b3850",borderRadius:12,paddingVertical:16,paddingHorizontal:16,marginBottom:10,flexDirection:"row",alignItems:"center",justifyContent:"space-between"},
+divisionChoiceActive:{borderColor:"#3ea4ff"},
+divisionChoiceText:{color:"#fff",fontSize:16,fontWeight:"800"},
+divisionChoiceTextActive:{color:"#3ea4ff"},
+divisionChevron:{color:"#8ea3b5",fontSize:24}
+,appOverlay:{flex:1,backgroundColor:"rgba(1,7,16,.20)",zIndex:2},
+flagBg:{...StyleSheet.absoluteFillObject,zIndex:0,overflow:"hidden"},
+flagStripes:{...StyleSheet.absoluteFillObject},
+flagStripe:{flex:1},
+flagCanton:{position:"absolute",top:0,left:0,width:"56%",height:"54%",backgroundColor:"#3c3b6e",flexDirection:"row",flexWrap:"wrap",alignContent:"flex-start",paddingTop:4,paddingLeft:5},
+flagStar:{color:"#fff",fontSize:8,width:"14%",textAlign:"center",lineHeight:12},
+flagDim:{...StyleSheet.absoluteFillObject,backgroundColor:"rgba(0,5,15,.30)"},
+splashShade:{...StyleSheet.absoluteFillObject,backgroundColor:"rgba(0,0,0,.15)",zIndex:1},
+matchCard:{backgroundColor:"rgba(7,22,36,.86)",borderWidth:1,borderColor:"rgba(90,150,210,.45)",borderRadius:14,padding:14,marginBottom:10},
+matchDivision:{color:"#ef3d3d",fontSize:11,fontWeight:"900",letterSpacing:1,marginBottom:8},
+matchPlayersLarge:{flexDirection:"row",alignItems:"center",justifyContent:"center",flexWrap:"wrap",marginVertical:4},
+vsLarge:{color:"#fff",fontSize:18,fontWeight:"900"},
+matchDate:{color:"#fff",fontSize:13,fontWeight:"700",textAlign:"center",marginTop:8},
+matchMeta:{color:"#8ea3b5",fontSize:11,textAlign:"center",marginTop:3}
+,loadingWrap:{position:"absolute",bottom:38,width:"76%",alignItems:"center",zIndex:4},
+loadingTrack:{width:"100%",height:12,borderRadius:8,backgroundColor:"rgba(4,18,36,.9)",borderWidth:1,borderColor:"rgba(255,255,255,.3)",overflow:"hidden"},
+loadingFill:{width:"72%",height:"100%",backgroundColor:"#1477ff",borderRadius:8},
+loadingText:{color:"#fff",fontSize:11,marginTop:6,fontWeight:"700"},
+homeTop:{marginTop:2,marginBottom:4},
+homeWelcomeSmall:{color:"#dce7ef",fontSize:10,fontWeight:"700"},
+homeWelcomeBig:{color:"#fff",fontSize:23,fontWeight:"900"},
+homeDivision:{color:"#a8bfd1",fontSize:11,marginTop:1},
+heroCompact:{alignItems:"center",marginVertical:4},
+brandUS:{color:"#fff",fontSize:36,fontWeight:"900",letterSpacing:2,textShadowColor:"#1c67ff",textShadowRadius:8},
+brandAuto:{color:"#fff",fontSize:20,fontWeight:"900",letterSpacing:2},
+brandLeague:{color:"#ef3d3d",fontSize:14,fontWeight:"900",letterSpacing:4},
+quickGrid:{flexDirection:"row",flexWrap:"wrap",gap:8,marginVertical:6},
+quickTile:{width:"48.7%",height:82,backgroundColor:"rgba(2,15,35,.86)",borderWidth:1,borderColor:"rgba(45,112,255,.65)",borderRadius:14,alignItems:"center",justifyContent:"center"},
+quickIcon:{fontSize:24,marginBottom:3},
+quickText:{color:"#fff",fontSize:12,fontWeight:"800"},
+previewCard:{backgroundColor:"rgba(2,15,35,.88)",borderWidth:1,borderColor:"rgba(45,112,255,.58)",borderRadius:14,padding:12,marginVertical:4},
+previewCardLabel:{color:"#ef3d3d",fontSize:10,fontWeight:"900",letterSpacing:1,marginBottom:4},
+previewAverage:{color:"#ef3d3d",fontSize:42,fontWeight:"900",lineHeight:45},
+previewSub:{color:"#9bb0c2",fontSize:9,fontWeight:"700"},
+previewStatRow:{flexDirection:"row",gap:7,marginVertical:3},
+previewMini:{flex:1,height:62,backgroundColor:"rgba(2,15,35,.88)",borderWidth:1,borderColor:"rgba(45,112,255,.5)",borderRadius:12,alignItems:"center",justifyContent:"center"},
+previewMiniValue:{color:"#fff",fontSize:20,fontWeight:"900"},
+previewMiniLabel:{color:"#9bb0c2",fontSize:8,fontWeight:"800",marginTop:1},
+flagImage:{opacity:.96}
+,gearButton:{width:46,height:46,borderRadius:23,alignItems:"center",justifyContent:"center",backgroundColor:"rgba(3,18,40,.88)",borderWidth:1,borderColor:"rgba(255,255,255,.45)",zIndex:30},
+gearIcon:{color:"#fff",fontSize:27,fontWeight:"900"},
+headerSpacer:{width:40},
+settingsRow:{backgroundColor:"rgba(2,15,35,.88)",borderWidth:1,borderColor:"rgba(45,112,255,.55)",borderRadius:14,padding:15,marginBottom:10,flexDirection:"row",alignItems:"center",justifyContent:"space-between"},
+settingsPanel:{backgroundColor:"rgba(2,15,35,.88)",borderWidth:1,borderColor:"rgba(45,112,255,.55)",borderRadius:14,padding:16},
+settingsTitle:{color:"#fff",fontSize:16,fontWeight:"900"},
+settingsSub:{color:"#9bb0c2",fontSize:11,marginTop:4,lineHeight:16,maxWidth:"92%"},
+settingsArrow:{color:"#3ea4ff",fontSize:26},
+fontButtons:{flexDirection:"row",gap:8,marginTop:16,marginBottom:20},
+fontButton:{flex:1,paddingVertical:12,borderRadius:10,backgroundColor:"rgba(7,22,36,.9)",borderWidth:1,borderColor:"rgba(90,150,210,.45)",alignItems:"center"},
+fontButtonActive:{borderColor:"#ef3d3d",backgroundColor:"rgba(90,15,25,.75)"},
+fontButtonText:{color:"#fff",fontWeight:"800"},
+fontPreview:{color:"#fff",fontWeight:"900",textAlign:"center",paddingVertical:12}
+,securityItem:{marginTop:14},
+securityLabel:{color:"#dce7ef",fontSize:11,fontWeight:"800",marginBottom:5},
+securityField:{backgroundColor:"rgba(5,15,30,.9)",borderWidth:1,borderColor:"rgba(90,150,210,.45)",borderRadius:10,paddingVertical:12,paddingHorizontal:12},
+securityPlaceholder:{color:"#8ea3b5",fontSize:14,letterSpacing:2},
+securityButton:{marginTop:18,backgroundColor:"#126bd6",borderRadius:10,paddingVertical:13,alignItems:"center"},
+securityButtonText:{color:"#fff",fontWeight:"900",letterSpacing:.5}
+,
+profilePhotoRow:{flexDirection:"row",alignItems:"center",marginTop:16,marginBottom:18},
+profilePhotoButton:{width:82,height:82,borderRadius:41,backgroundColor:"rgba(5,15,30,.9)",borderWidth:2,borderColor:"rgba(90,150,210,.65)",alignItems:"center",justifyContent:"center",overflow:"hidden"},
+profilePhoto:{width:82,height:82,borderRadius:41},
+profilePhotoIcon:{fontSize:30},
+profilePhotoText:{flex:1,marginLeft:14},
+profileInput:{backgroundColor:"rgba(5,15,30,.9)",borderWidth:1,borderColor:"rgba(90,150,210,.45)",borderRadius:10,paddingVertical:11,paddingHorizontal:12,color:"#fff",fontSize:14,marginBottom:14},
+profileReadOnly:{backgroundColor:"rgba(28,39,52,.88)",borderColor:"rgba(130,150,170,.35)",color:"#cbd6df",marginBottom:4},
+profileReadOnlyNote:{color:"#7890a3",fontSize:9,fontWeight:"900",letterSpacing:.6,marginBottom:14},
+serverStatus:{flexDirection:"row",alignItems:"center",marginTop:16,padding:10,borderRadius:10,backgroundColor:"rgba(5,15,30,.8)"},
+serverStatusDot:{color:"#3ea4ff",fontSize:12,marginRight:7},
+serverStatusText:{color:"#9bb0c2",fontSize:11,fontWeight:"700"},
+signInOverlay:{flex:1,backgroundColor:"rgba(1,7,16,.32)"},
+signInContent:{flexGrow:1,justifyContent:"center",paddingHorizontal:22,paddingVertical:28},
+signInLogo:{width:"86%",height:220,alignSelf:"center",marginBottom:6},
+signInCard:{backgroundColor:"rgba(2,15,35,.92)",borderWidth:1,borderColor:"rgba(45,112,255,.65)",borderRadius:18,padding:18},
+authCheckCard:{margin:24,marginTop:"45%",backgroundColor:"rgba(2,15,35,.94)",borderWidth:1,borderColor:"rgba(45,112,255,.65)",borderRadius:18,padding:20},
+signInTitle:{color:"#fff",fontSize:23,fontWeight:"900",textAlign:"center",letterSpacing:1},
+signInSub:{color:"#9bb0c2",fontSize:11,textAlign:"center",lineHeight:16,marginTop:5,marginBottom:18},
+signInInput:{backgroundColor:"rgba(5,15,30,.95)",borderWidth:1,borderColor:"rgba(90,150,210,.5)",borderRadius:10,paddingVertical:12,paddingHorizontal:12,color:"#fff",fontSize:14,marginBottom:14},
+keepRow:{flexDirection:"row",alignItems:"center",marginVertical:3},
+checkBox:{width:22,height:22,borderRadius:5,borderWidth:1,borderColor:"#8ea3b5",alignItems:"center",justifyContent:"center",backgroundColor:"rgba(0,0,0,.35)"},
+checkBoxOn:{backgroundColor:"#126bd6",borderColor:"#3ea4ff"},
+checkMark:{color:"#fff",fontSize:15,fontWeight:"900"},
+keepText:{color:"#dce7ef",fontSize:11,fontWeight:"700",marginLeft:9,flex:1},
+signInError:{color:"#ff6b6b",fontSize:11,fontWeight:"700",marginTop:9},
+signInButton:{marginTop:16,backgroundColor:"#126bd6",borderRadius:10,paddingVertical:13,alignItems:"center"},
+signInNote:{color:"#6f8597",fontSize:9,lineHeight:13,textAlign:"center",marginTop:12}
+,
+matchCardRow:{flexDirection:"row",alignItems:"stretch"},
+matchCardInfo:{flex:1,paddingRight:10},
+matchPlayersLeft:{flexDirection:"row",alignItems:"center",flexWrap:"wrap",marginVertical:4},
+matchDateLeft:{color:"#fff",fontSize:13,fontWeight:"700",marginTop:8},
+matchMetaLeft:{color:"#8ea3b5",fontSize:11,marginTop:3},
+uploadResultsButton:{width:92,minHeight:92,borderRadius:12,backgroundColor:"rgba(18,107,214,.88)",borderWidth:1,borderColor:"rgba(120,180,255,.75)",alignItems:"center",justifyContent:"center",paddingHorizontal:6},
+uploadResultsIcon:{color:"#fff",fontSize:22,fontWeight:"900",marginBottom:2},
+uploadResultsText:{color:"#fff",fontSize:10,fontWeight:"900",letterSpacing:.5,lineHeight:13,textAlign:"center"},
+uploadReady:{color:"#59d98e",fontSize:9,fontWeight:"800",marginTop:7}
+,
+playerNameAwardsRow:{flexDirection:"row",alignItems:"center",flexShrink:1,minWidth:0},
+awardsInline:{flexDirection:"row",alignItems:"center",marginLeft:4,flexShrink:0},
+inlinePlayerLinkCompact:{fontSize:9},
+awardWrap:{width:24,height:22,marginRight:2,position:"relative",alignItems:"center",justifyContent:"center"},
+awardWrapCompact:{width:17,height:16,marginRight:1},
+awardCount:{position:"absolute",right:-1,top:-3,minWidth:12,height:12,borderRadius:6,backgroundColor:"#0b1c2b",borderWidth:1,borderColor:"#fff",color:"#fff",fontSize:7,fontWeight:"900",textAlign:"center",lineHeight:10},
+awardCountCompact:{minWidth:9,height:9,borderRadius:5,fontSize:6,lineHeight:8,right:-1,top:-2},
+trophyCup:{width:14,height:8,borderTopLeftRadius:3,borderTopRightRadius:3,borderBottomLeftRadius:6,borderBottomRightRadius:6,backgroundColor:"#d8a928",position:"absolute",top:3},
+trophyCupCompact:{width:10,height:6,top:2},
+trophyStem:{position:"absolute",width:3,height:5,backgroundColor:"#d8a928",top:10},
+trophyStemCompact:{width:2,height:4,top:7},
+trophyBase:{position:"absolute",width:10,height:2,backgroundColor:"#d8a928",top:15,borderRadius:1},
+trophyBaseCompact:{width:8,height:2,top:11},
+medalRibbon:{position:"absolute",top:1,width:10,height:8,borderLeftWidth:3,borderRightWidth:3,borderLeftColor:"#e33b3b",borderRightColor:"#2367d8",borderBottomWidth:5,borderBottomColor:"transparent"},
+medalRibbonCompact:{width:7,height:6,borderLeftWidth:2,borderRightWidth:2,borderBottomWidth:4},
+medalCircle:{position:"absolute",bottom:1,width:12,height:12,borderRadius:6,backgroundColor:"#d8a928",borderWidth:1,borderColor:"#f2d46e"},
+medalCircleCompact:{width:9,height:9,borderRadius:5},
+badgeShield:{width:13,height:14,backgroundColor:"#2e7dd7",borderTopLeftRadius:4,borderTopRightRadius:4,borderBottomLeftRadius:7,borderBottomRightRadius:7,borderWidth:1,borderColor:"#9bc5ff",transform:[{rotate:"45deg"}]},
+badgeShieldCompact:{width:9,height:10},
+awardPlus:{color:"#fff",fontSize:15,fontWeight:"900",marginLeft:1},
+awardPlusCompact:{fontSize:11}
+,
+profileNameAwards:{marginBottom:2,alignSelf:"flex-start"},
+profileAwardsHint:{color:"#8ea3b5",fontSize:9,fontWeight:"800",letterSpacing:1,marginBottom:10}
+,
+awardGraphic:{width:22,height:22},
+awardGraphicCompact:{width:16,height:16}
+,
+profileHeaderRow:{flexDirection:"row",alignItems:"center",justifyContent:"space-between",marginBottom:10},
+profileBack:{color:"#fff",fontSize:40,fontWeight:"300",lineHeight:42},
+profilePageTitle:{color:"#fff",fontSize:22,fontWeight:"900",letterSpacing:1},
+profileMore:{color:"#fff",fontSize:20,fontWeight:"900"},
+profileHero:{flexDirection:"row",alignItems:"center",marginBottom:14},
+profileAvatarWrap:{width:112,alignItems:"center",justifyContent:"center"},
+profileAvatarCircle:{width:104,height:104,borderRadius:52,borderWidth:2,borderColor:"#168cff",backgroundColor:"rgba(5,15,30,.95)",alignItems:"center",justifyContent:"center"},
+profileAvatarInitial:{color:"#fff",fontSize:48,fontWeight:"900"},
+profileHeroRight:{flex:1,paddingLeft:12},
+profileBigName:{color:"#fff",fontSize:28,fontWeight:"900",letterSpacing:.5,marginBottom:8},
+profileAwardsLarge:{width:"100%",marginTop:6,marginBottom:8},
+profileMetaRow:{flexDirection:"row",alignItems:"stretch",justifyContent:"space-between",paddingVertical:12,borderTopWidth:1,borderBottomWidth:1,borderColor:"rgba(255,255,255,.16)",marginBottom:12},
+profileMetaItem:{flex:1,alignItems:"center",justifyContent:"center",paddingHorizontal:3},
+profileMetaDivider:{width:1,backgroundColor:"rgba(255,255,255,.2)"},
+profileMetaIcon:{color:"#2f80ed",fontSize:20,marginBottom:3},
+profileMetaLabel:{color:"#9bb0c2",fontSize:8,fontWeight:"800",textAlign:"center"},
+profileMetaValue:{color:"#fff",fontSize:14,fontWeight:"900",marginTop:3,textAlign:"center"},
+profileTabs:{flexDirection:"row",justifyContent:"space-between",borderBottomWidth:1,borderColor:"rgba(255,255,255,.15)",marginBottom:12},
+profileTab:{color:"#7f8b9a",fontSize:10,fontWeight:"900",paddingVertical:10},
+profileTabActive:{color:"#2f80ed",borderBottomWidth:3,borderBottomColor:"#2f80ed"},
+profileSectionCard:{backgroundColor:"rgba(3,15,31,.9)",borderWidth:1,borderColor:"rgba(90,150,210,.35)",borderRadius:14,padding:12,marginBottom:12},
+profileSectionHeader:{flexDirection:"row",alignItems:"center",marginBottom:10},
+profileSectionTitle:{color:"#2f80ed",fontSize:16,fontWeight:"900"},
+profileSeasonYear:{color:"#7f8b9a",fontSize:13,fontWeight:"800",marginLeft:6},
+profileSeasonSelect:{marginLeft:"auto",borderWidth:1,borderColor:"rgba(255,255,255,.2)",borderRadius:10,paddingVertical:6,paddingHorizontal:10},
+profileSeasonSelectText:{color:"#fff",fontSize:11,fontWeight:"800"},
+profileStatsMatrix:{flexDirection:"row",flexWrap:"wrap",borderTopWidth:1,borderLeftWidth:1,borderColor:"rgba(90,150,210,.22)"},
+profileStatBox:{width:"25%",minHeight:92,borderRightWidth:1,borderBottomWidth:1,borderColor:"rgba(90,150,210,.22)",alignItems:"center",justifyContent:"center",padding:6},
+profileStatLabel:{color:"#9bb0c2",fontSize:8,fontWeight:"800",textAlign:"center",marginBottom:6},
+profileStatValue:{fontSize:24,fontWeight:"900",textAlign:"center"},
+profileRecentHeader:{flexDirection:"row",justifyContent:"space-between",alignItems:"center",marginBottom:6},
+profileViewAll:{color:"#2f80ed",fontSize:11,fontWeight:"900"},
+profileMatchRow:{flexDirection:"row",alignItems:"center",paddingVertical:11,borderTopWidth:1,borderColor:"rgba(255,255,255,.10)"},
+profileResultBadge:{width:34,height:34,borderRadius:8,backgroundColor:"#2c8f3b",alignItems:"center",justifyContent:"center"},
+profileResultLoss:{backgroundColor:"#b93131"},
+profileResultText:{color:"#fff",fontSize:16,fontWeight:"900"},
+profileOpponentAvatar:{width:34,height:34,borderRadius:17,borderWidth:2,borderColor:"#168cff",backgroundColor:"#1c2a3a",alignItems:"center",justifyContent:"center",marginLeft:8},
+profileOpponentInitial:{color:"#fff",fontWeight:"900"},
+profileOpponentInfo:{flex:1,marginLeft:8},
+profileOpponentName:{color:"#fff",fontSize:12,fontWeight:"900"},
+profileOpponentSub:{color:"#8ea3b5",fontSize:9,marginTop:2},
+profileScore:{color:"#35c759",fontSize:18,fontWeight:"900",marginHorizontal:8},
+profileMatchDateWrap:{width:82,alignItems:"flex-end"},
+profileMatchDate:{color:"#dce7ef",fontSize:9,fontWeight:"700"},
+profileMatchType:{color:"#8ea3b5",fontSize:8,marginTop:2},
+profileChevron:{color:"#9bb0c2",fontSize:24,marginLeft:5}
+,
+profileAwardsOnlyRow:{width:"100%",flexDirection:"row",alignItems:"center",overflow:"hidden",minHeight:54},
+profileAwardsArea:{width:"100%"},
+profileAwardsExpandedRow:{flexWrap:"wrap",overflow:"visible",paddingBottom:2},
+awardWrapProfile:{width:46,height:50,marginRight:4},
+awardGraphicProfile:{width:44,height:44},
+awardCountProfile:{minWidth:16,height:16,borderRadius:8,fontSize:9,lineHeight:14,right:0,top:0},
+profileAwardPlus:{color:"#fff",fontSize:27,fontWeight:"900",lineHeight:34,textAlign:"center"},
+profileAwardPlusButton:{width:28,height:36,borderRadius:18,backgroundColor:"#1477ff",borderWidth:1,borderColor:"rgba(255,255,255,.65)",alignItems:"center",justifyContent:"center",marginLeft:1},
+profileAwardsCloseButton:{alignSelf:"flex-start",marginTop:3,paddingVertical:3,paddingHorizontal:2},
+profileAwardsCloseText:{color:"#3ea4ff",fontSize:9,fontWeight:"900",letterSpacing:.7}
+,
+rulesPage:{paddingBottom:24},
+rulesHero:{backgroundColor:"rgba(2,15,35,.94)",borderWidth:1,borderColor:"rgba(54,125,255,.72)",borderRadius:18,padding:18,marginBottom:16,shadowColor:"#1477ff",shadowOpacity:.22,shadowRadius:12,elevation:5},
+rulesKicker:{color:"#ef3d3d",fontSize:10,fontWeight:"900",letterSpacing:2.1,marginBottom:5},
+rulesHeroTitle:{color:"#fff",fontSize:25,fontWeight:"900",letterSpacing:.5},
+rulesUpdated:{color:"#7f9bb1",fontSize:8,fontWeight:"800",letterSpacing:.65,marginTop:6},
+rulesFormatBar:{flexDirection:"row",alignItems:"stretch",backgroundColor:"rgba(5,24,46,.92)",borderWidth:1,borderColor:"rgba(255,255,255,.10)",borderRadius:13,marginTop:16,overflow:"hidden"},
+rulesFormatItem:{flex:1,alignItems:"center",justifyContent:"center",paddingVertical:12,paddingHorizontal:4},
+rulesFormatValue:{color:"#fff",fontSize:17,fontWeight:"900"},
+rulesFormatLabel:{color:"#3ea4ff",fontSize:7,fontWeight:"900",letterSpacing:.8,marginTop:2,textAlign:"center"},
+rulesFormatDivider:{width:1,backgroundColor:"rgba(255,255,255,.12)",marginVertical:8},
+rulesHeroNote:{color:"#a8bfd1",fontSize:10,lineHeight:15,marginTop:13},
+rulesSectionHeadingRow:{flexDirection:"row",alignItems:"center",justifyContent:"space-between",marginTop:2,marginBottom:7,paddingHorizontal:2},
+rulesSectionHeading:{color:"#fff",fontSize:12,fontWeight:"900",letterSpacing:1.3},
+rulesSectionCount:{color:"#6f8597",fontSize:8,fontWeight:"800",letterSpacing:.8},
+ruleCard:{backgroundColor:"rgba(3,15,31,.92)",borderWidth:1,borderColor:"rgba(90,150,210,.34)",borderRadius:14,marginBottom:9,overflow:"hidden"},
+ruleCardHeader:{minHeight:72,flexDirection:"row",alignItems:"center",paddingVertical:11,paddingHorizontal:12},
+ruleNumber:{width:38,height:38,borderRadius:11,backgroundColor:"rgba(20,119,255,.16)",borderWidth:1,borderColor:"rgba(20,119,255,.58)",alignItems:"center",justifyContent:"center",marginRight:11},
+ruleNumberText:{color:"#67adff",fontSize:12,fontWeight:"900",letterSpacing:.6},
+ruleHeaderCopy:{flex:1},
+ruleEyebrow:{color:"#ef3d3d",fontSize:7,fontWeight:"900",letterSpacing:1.1,marginBottom:3},
+ruleTitle:{color:"#fff",fontSize:14,fontWeight:"900"},
+ruleChevron:{color:"#3ea4ff",fontSize:24,fontWeight:"700",width:28,textAlign:"right"},
+ruleBody:{borderTopWidth:1,borderTopColor:"rgba(255,255,255,.08)",paddingHorizontal:13,paddingTop:11,paddingBottom:12,backgroundColor:"rgba(2,10,22,.48)"},
+ruleBulletRow:{flexDirection:"row",alignItems:"flex-start",marginBottom:9,paddingRight:4},
+ruleBullet:{width:5,height:5,borderRadius:3,backgroundColor:"#3ea4ff",marginTop:6,marginRight:9},
+ruleBulletText:{flex:1,color:"#d6e3ed",fontSize:10.5,lineHeight:16},
+rulesAuthorityCard:{backgroundColor:"rgba(31,23,5,.78)",borderWidth:1,borderColor:"rgba(219,173,63,.46)",borderRadius:14,padding:14,marginTop:7},
+rulesAuthorityTop:{flexDirection:"row",alignItems:"center",marginBottom:6},
+rulesAuthorityIcon:{color:"#f2c94c",fontSize:15,marginRight:8},
+rulesAuthorityTitle:{color:"#f2c94c",fontSize:10,fontWeight:"900",letterSpacing:.8},
+rulesAuthorityText:{color:"#c7b98b",fontSize:9.5,lineHeight:15},
+
+trophyCasePage:{paddingBottom:28},
+trophyHero:{backgroundColor:"rgba(2,8,16,.96)",borderWidth:1,borderColor:"rgba(204,154,45,.64)",borderRadius:18,padding:18,marginBottom:16},
+trophyKicker:{color:"#e2aa33",fontSize:10,fontWeight:"900",letterSpacing:2.1},
+trophyHeroTitle:{color:"#fff",fontSize:26,fontWeight:"900",letterSpacing:.7,marginTop:4},
+trophyHeroCount:{color:"#e2aa33",fontSize:9,fontWeight:"900",letterSpacing:1.2,marginTop:6},
+trophyHeroSub:{color:"#aab8c5",fontSize:10.5,lineHeight:16,marginTop:8},
+trophySection:{marginBottom:16},
+trophySectionHeadingRow:{flexDirection:"row",alignItems:"center",gap:10,marginBottom:8},
+trophySectionTitle:{color:"#e2aa33",fontSize:11,fontWeight:"900",letterSpacing:1.1},
+trophySectionLine:{flex:1,height:1,backgroundColor:"rgba(226,170,51,.45)"},
+trophyGrid:{gap:10},
+trophyCard:{width:"100%",backgroundColor:"rgba(2,7,13,.94)",borderWidth:1,borderColor:"rgba(113,126,138,.32)",borderRadius:14,padding:10,flexDirection:"row",alignItems:"center",minHeight:142},
+trophyImageWrap:{width:126,height:126,alignItems:"center",justifyContent:"center",backgroundColor:"rgba(0,0,0,.22)",borderRadius:11,overflow:"hidden",marginRight:12},
+trophyImage:{width:120,height:120,borderRadius:8},
+trophyCardText:{flex:1},
+trophyName:{color:"#fff",fontSize:14,fontWeight:"900",textAlign:"left"},
+trophyMeaningLabel:{color:"#e2aa33",fontSize:7.5,fontWeight:"900",letterSpacing:.8,marginTop:6},
+trophyDetail:{color:"#c4d0d9",fontSize:10,lineHeight:15,textAlign:"left",marginTop:4},
+trophyPermanentNote:{backgroundColor:"rgba(31,23,5,.78)",borderWidth:1,borderColor:"rgba(219,173,63,.46)",borderRadius:14,padding:14,marginTop:2},
+trophyPermanentTitle:{color:"#f2c94c",fontSize:9.5,fontWeight:"900",letterSpacing:.8},
+trophyPermanentText:{color:"#c7b98b",fontSize:9.5,lineHeight:15,marginTop:6},
+
+serverStatusCard:{flexDirection:"row",alignItems:"center",gap:10,backgroundColor:"rgba(6,15,26,.94)",borderWidth:1,borderColor:"#24435c",borderRadius:14,paddingVertical:10,paddingHorizontal:12,marginBottom:12},
+serverDot:{width:10,height:10,borderRadius:5},
+serverStatusTitle:{color:"#f4f8fb",fontSize:12,fontWeight:"900",letterSpacing:.5},
+serverStatusUrl:{color:"#83a5bf",fontSize:10,marginTop:2},
+serverRefresh:{color:"#4bb7ff",fontSize:24,fontWeight:"800",paddingHorizontal:4},
+
+managerSettingsRow:{borderColor:"rgba(230,57,70,.8)"},
+managerNewPill:{backgroundColor:"#e63946",borderRadius:10,paddingHorizontal:8,paddingVertical:4,marginLeft:"auto",marginRight:8},
+managerNewText:{color:"#fff",fontSize:8,fontWeight:"900",letterSpacing:.5},
+managerHeader:{flexDirection:"row",alignItems:"center",gap:10,backgroundColor:"rgba(6,15,26,.96)",borderWidth:1,borderColor:"#24435c",borderRadius:14,padding:12,marginBottom:12},
+managerHeaderTitle:{color:"#f4f8fb",fontSize:13,fontWeight:"900",letterSpacing:1},
+managerHeaderSub:{color:"#83a5bf",fontSize:9,marginTop:3},
+managerLead:{color:"#a9bdcd",fontSize:11,lineHeight:17,marginBottom:12},
+managerLoading:{color:"#4bb7ff",fontSize:11,fontWeight:"900",textAlign:"center",paddingVertical:10,letterSpacing:.8},
+managerError:{backgroundColor:"rgba(70,18,22,.92)",borderWidth:1,borderColor:"#b7333d",borderRadius:12,padding:12,marginBottom:12},
+managerErrorTitle:{color:"#ff7b84",fontSize:10,fontWeight:"900",letterSpacing:1},
+managerErrorText:{color:"#ffd7da",fontSize:10,lineHeight:15,marginTop:5},
+managerMetricGrid:{flexDirection:"row",flexWrap:"wrap",gap:8,marginBottom:12},
+managerMetric:{width:"48.7%",minHeight:76,backgroundColor:"rgba(8,24,42,.94)",borderWidth:1,borderColor:"#24435c",borderRadius:12,padding:12},
+managerMetricLabel:{color:"#89a7bd",fontSize:9,fontWeight:"900",letterSpacing:.8},
+managerMetricValue:{color:"#fff",fontSize:18,fontWeight:"900",marginTop:7},
+managerSection:{color:"#e63946",fontSize:10,fontWeight:"900",letterSpacing:1.2,marginTop:4,marginBottom:8},
+managerMenuRow:{flexDirection:"row",alignItems:"center",backgroundColor:"rgba(5,18,35,.94)",borderWidth:1,borderColor:"#24435c",borderRadius:13,padding:12,marginBottom:8},
+managerMenuIcon:{width:38,height:38,borderRadius:10,backgroundColor:"rgba(39,116,216,.18)",alignItems:"center",justifyContent:"center",marginRight:11},
+managerMenuIconText:{fontSize:18,color:"#fff"},
+managerMenuTitle:{color:"#fff",fontSize:14,fontWeight:"900"},
+managerMenuSub:{color:"#88a2b7",fontSize:9,marginTop:3},
+managerNotice:{backgroundColor:"rgba(7,22,36,.92)",borderWidth:1,borderColor:"#24435c",borderRadius:14,padding:16},
+managerNoticeTitle:{color:"#e63946",fontSize:12,fontWeight:"900",letterSpacing:1},
+managerNoticeText:{color:"#b8c8d5",fontSize:11,lineHeight:18,marginTop:8},
+managerForm:{backgroundColor:"rgba(7,22,36,.92)",borderWidth:1,borderColor:"#24435c",borderRadius:14,padding:12,marginBottom:12},
+managerFormTitle:{color:"#e63946",fontSize:11,fontWeight:"900",letterSpacing:1,marginBottom:9},
+managerInput:{backgroundColor:"#0e2033",borderWidth:1,borderColor:"#31516d",borderRadius:9,color:"#fff",fontSize:12,paddingHorizontal:11,paddingVertical:10,marginBottom:8},
+managerButtonRow:{flexDirection:"row",gap:8,marginTop:4},
+managerPrimary:{flex:1,backgroundColor:"#2774d8",borderRadius:9,paddingVertical:11,paddingHorizontal:10,alignItems:"center",justifyContent:"center",marginVertical:4},
+managerSecondary:{flex:1,backgroundColor:"#20364e",borderWidth:1,borderColor:"#3b5871",borderRadius:9,paddingVertical:11,paddingHorizontal:9,alignItems:"center",justifyContent:"center",marginVertical:4},
+managerDanger:{backgroundColor:"#b7333d",borderRadius:9,paddingVertical:11,paddingHorizontal:12,alignItems:"center",justifyContent:"center",marginLeft:7},
+managerButtonText:{color:"#fff",fontSize:9,fontWeight:"900",letterSpacing:.5,textAlign:"center"},
+managerHint:{color:"#7995aa",fontSize:9,lineHeight:14,marginTop:8},
+managerListCard:{backgroundColor:"rgba(7,22,36,.92)",borderWidth:1,borderColor:"#24435c",borderRadius:12,padding:12,marginBottom:8},
+managerListTitle:{color:"#fff",fontSize:13,fontWeight:"900"},
+managerListSub:{color:"#89a5ba",fontSize:9,lineHeight:14,marginTop:3},
+managerBodyText:{color:"#c2d0db",fontSize:10,lineHeight:15,marginTop:7},
+managerSmallActions:{flexDirection:"row",gap:7,marginTop:9},
+managerMiniBtn:{backgroundColor:"#20364e",borderWidth:1,borderColor:"#3b5871",borderRadius:8,paddingHorizontal:12,paddingVertical:8},
+managerMiniText:{color:"#fff",fontSize:8,fontWeight:"900"},
+managerResetRow:{flexDirection:"row",alignItems:"center",marginTop:8},
+choiceBlock:{marginBottom:9},
+choiceLabel:{color:"#9db2c4",fontSize:9,fontWeight:"900",letterSpacing:.6,marginBottom:5},
+choiceButton:{minHeight:42,backgroundColor:"#0e2033",borderWidth:1,borderColor:"#31516d",borderRadius:9,paddingHorizontal:11,flexDirection:"row",alignItems:"center"},
+choiceButtonOpen:{borderColor:"#4bb7ff"},
+choiceValue:{flex:1,color:"#fff",fontSize:11,fontWeight:"700"},
+choiceArrow:{color:"#7fb8e8",fontSize:10,marginLeft:8},
+choiceMenu:{backgroundColor:"#081725",borderWidth:1,borderColor:"#31516d",borderRadius:9,overflow:"hidden",marginTop:4},
+choiceOption:{paddingVertical:10,paddingHorizontal:11,borderBottomWidth:1,borderBottomColor:"rgba(255,255,255,.06)"},
+choiceOptionActive:{backgroundColor:"rgba(39,116,216,.22)"},
+choiceOptionText:{color:"#c6d5df",fontSize:10},
+choiceOptionTextActive:{color:"#fff",fontWeight:"900"},
+emptyStateCard:{backgroundColor:"rgba(7,22,36,.72)",borderWidth:1,borderColor:"#24435c",borderRadius:12,padding:14,marginVertical:8},
+emptyStateTitle:{color:"#fff",fontSize:11,fontWeight:"900",letterSpacing:.7},
+emptyStateText:{color:"#8fa7ba",fontSize:10,lineHeight:15,marginTop:5},
+matchSelfName:{color:"#fff",fontSize:15,fontWeight:"900"},
+matchResultLetter:{color:"#35c759",fontSize:14,fontWeight:"900",marginRight:7},
+divisionManagerHeader:{flexDirection:"row",alignItems:"center",marginBottom:6},
+divisionMemberRow:{flexDirection:"row",alignItems:"center",paddingVertical:8,borderTopWidth:1,borderTopColor:"rgba(255,255,255,.08)"},
+divisionMemberName:{color:"#fff",fontSize:11,fontWeight:"900"},
+});

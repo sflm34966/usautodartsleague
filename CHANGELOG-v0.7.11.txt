@@ -1,0 +1,10 @@
+US AutoDarts League v0.7.11
+
+SWIPE NAVIGATION - NATIVE ANDROID FIX
+- Replaced React Native PanResponder with native react-native-gesture-handler PanGestureHandler.
+- Swipe RIGHT in a submenu goes back through actual navigation history.
+- Swipe LEFT after going back moves forward through navigation history.
+- Manager/Moderator server submenus have their own native swipe history; outer navigation is disabled while inside those tools to prevent double navigation.
+- Vertical ScrollViews remain vertical-scrollable; the horizontal gesture fails when movement becomes primarily vertical.
+- Existing server-driven rules, 30-rule fallback, awards, and other app behavior are unchanged.
+- Android versionCode 81.

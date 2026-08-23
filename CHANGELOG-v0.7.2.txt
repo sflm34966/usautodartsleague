@@ -1,0 +1,9 @@
+v0.7.2 Unified Role Build
+-------------------------
+- Merged Player, Moderator, and Manager Android experiences into one app.
+- Settings > Server is hidden for player accounts.
+- Moderator accounts see only the restricted moderator server panel.
+- Manager accounts see the full manager server panel.
+- Role is derived from server_role first, then role; legacy admin maps to manager.
+- Same Android package as the Player app: com.usautodarts.league.
+- Version code 72.

@@ -1,0 +1,7 @@
+MATCH EVIDENCE - v0.7.14
+
+The old UPLOAD RESULTS button only selected images locally. v0.7.14 performs a real authenticated multipart upload to /api/matches/{match_id}/evidence.
+
+The app confirms when the league server receives the screenshot and displays the server-side evidence count on the match card. Completed matches can also receive additional evidence.
+
+Requires USADL Server Manager v0.6.9 or newer.

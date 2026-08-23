@@ -1,0 +1,10 @@
+US AutoDarts League v0.7.12
+
+Swipe navigation rewrite:
+- Removes parent PanGestureHandler navigation.
+- The ScrollView that owns Android touch movement now detects horizontal swipes directly.
+- Detection fires during movement rather than depending on touch release.
+- Responder-capture observation is included without stealing vertical scrolling.
+- Main app and Manager/Moderator panels keep separate Back/Forward histories.
+- Swipe right = Back; swipe left = Forward after Back.
+- Settings marker: APP v0.7.12 • DIRECT TOUCH SWIPE.

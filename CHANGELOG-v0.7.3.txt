@@ -1,0 +1,18 @@
+v0.7.3 Server Profile & Credential Validation
+---------------------------------------------
+- Removes generic Dustin profile defaults for signed-in users.
+- Populates Player Name from server display_name immediately after sign-in.
+- Populates Screen Name from server screen_name if present, otherwise server username.
+- Makes Player Name and Screen Name read-only in Profile Setup.
+- Keeps only profile picture and time zone as locally editable profile fields.
+- Keep me signed in now stores credentials in Expo SecureStore and performs a fresh /api/auth/login on every app launch.
+- Password reset or disabled account therefore blocks automatic sign-in at the next launch.
+- Network/server verification failure no longer silently trusts a stale session token.
+- Adds functioning Change Password UI and client logic using POST /api/auth/change-password.
+- After a successful password change, refreshes the server session and updates the saved credential when Keep me signed in is enabled.
+- Android package remains com.usautodarts.league.
+- Version code 73.
+
+SERVER NOTE
+The current v0.4 Windows server does not yet expose POST /api/auth/change-password.
+The app side is ready; that endpoint is the next required server-side fix before self-service password change can be tested end-to-end.

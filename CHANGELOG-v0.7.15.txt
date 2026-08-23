@@ -1,0 +1,9 @@
+US AutoDarts League Unified App v0.7.15
+
+LIVE SERVER STAT SYNC
+- My Stats now reads /api/player-stats from the authoritative league server.
+- Current-season 3-dart average, average until 170, first-9 average, checkout %, highest checkout, 60+, 100+, 140+, 170+, and 180s populate after approved screenshot evidence is stored.
+- Home dashboard 3-dart average, 180s, high checkout, and best leg now use live server data.
+- Own Player Profile season and career dart-stat tiles now use live server data.
+- Clear/blurry screenshot OCR behavior is unchanged; this is a client display/sync update.
+- Source is cross-platform aware so the website can use the same current UI foundation safely.

@@ -1,0 +1,31 @@
+US AutoDarts League Unified App v0.7.7
+=========================================
+
+REAL SERVER DATA / CLEANUP
+- Removed all hard-coded test player statistics, fake standings, fake next matches, fake match history and fake recent form.
+- Detailed dart statistics display zero until real imported server stats exist.
+- Match record / standings values use the live league server.
+
+MATCH FEED
+- Matches tab now reads the signed-in account's /api/matches feed from Server Manager v0.5.3+.
+- Scheduled matches appear under Upcoming.
+- Completed matches remain under Completed / History.
+- Home Next Match and Recent Form now use the same real server match feed.
+
+MANAGER / MODERATOR PLAYER UI
+- Division ID fields are hidden; division is selected by name from a dropdown.
+- Add/Edit Player includes the supported U.S. Time Zone dropdown.
+- Moderator Add Player uses the same division/time-zone choices.
+- Manager Divisions now supports viewing members, Add / Move Player, and Remove Player.
+- The server remains authoritative and enforces one division per player.
+
+TROPHIES / BADGES
+- Settings > Trophies redesigned as a full official 27-award visual guide.
+- Every active trophy/badge has a large picture, name, and explicit earning description.
+
+PROFILE
+- Profile time zone changed from free text to the same U.S. time-zone dropdown.
+
+AUTHENTICATION
+- Existing v0.7.5 login and saved-sign-in logic preserved.
+- Existing server-backed Change Password flow preserved.

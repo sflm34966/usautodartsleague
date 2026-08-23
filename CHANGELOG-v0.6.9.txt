@@ -1,0 +1,12 @@
+US AutoDarts League v0.6.9
+
+Changes since v0.6.8
+- Removed Draws from standings and demo league data.
+- Standings are now: Rank | Name | P | W | L | LD | P.
+- Demo league points updated to 3 points per win.
+- Regular-season match format updated everywhere in the prototype to Best of 5 / first to 3.
+- Recent demo match score updated to a valid Best-of-5 result.
+- Added professional, expandable League Rules rulebook under Settings with all 15 agreed rule sections.
+- Restored the smart + overflow control beside profile trophies/badges.
+- Tapping + expands and shows all of the player's awards on the profile; SHOW LESS collapses them again.
+- Preserved v0.6.8 Season Stats, Career Stats and agreed trophy artwork/removals.

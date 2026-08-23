@@ -1,0 +1,11 @@
+US AutoDarts League Unified App v0.7.9
+
+Everything from v0.7.8 remains in place, including Server Manager v0.6.0 alignment.
+
+New in v0.7.9:
+- Added Tournament to the permanent bottom navigation.
+- Tournament opens a server-linked Tournament Brackets page.
+- The page requests GET /api/tournaments?season_id=<id> so full brackets can be supplied by the server without another APK rebuild.
+- Until the server tournament endpoint is added, the app safely falls back to tournament/playoff matches present in the signed-in player's /api/matches feed.
+- Tournament page supports season selection, division grouping, round labels, schedule time in the player's local time zone, best-of format, and final scores.
+- Existing v0.7.8 rules, seasons, neutral Player 1 / Player 2, manager edit/reschedule-only behavior, dropdowns, swipe history, and server-linked trophies remain unchanged.

@@ -1,0 +1,7 @@
+v0.7.14 TEST
+1. Confirm Settings shows: APP v0.7.14 • ANDROID BACK SWIPE FIX.
+2. Open Settings > League Rules.
+3. Swipe from the LEFT EDGE toward the right (Android back gesture). It must return to Settings, not close the app.
+4. Swipe left across the page to go forward to League Rules.
+5. Test Android back gesture in Manager/Moderator submenus if applicable.
+6. On Home or another top-level tab, Android back/edge swipe should no longer close the APK.

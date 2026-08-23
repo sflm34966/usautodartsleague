@@ -1,0 +1,20 @@
+v0.7.4 Official Trophy & Badge Artwork
+--------------------------------------
+- Replaces the generic trophy/badge visuals with the agreed US AutoDarts League trophy-board artwork.
+- Adds Gold Cup: Division Playoff Champion.
+- Adds Silver Cup: Division Winner (Regular Season #1).
+- Adds Diamond Cup: Tournament / League Champion.
+- Division Runner-Up remains removed from the active award set.
+- Adds six season performance award graphics: Most 180s, Highest 3-Dart Average, Highest Checkout, Best Checkout Percentage, Best Leg, and Most Match Wins.
+- Adds eighteen special achievement badge graphics: 9/12/15-Dart Leg, 170 Checkout, 100+ Checkout, First 180, 50/100 Career 180s, Win Streak, Promotion, Relegation Avoided, 5/10 Seasons, 100/250 Matches, Perfect Season, Undefeated Season, and Multiple Division Winner.
+- Adds Settings > Trophy Case so the full official award set can be viewed inside the unified app.
+- Updates profile/standings award markers to use the new artwork.
+- Corrects the Manager Awards description so Silver Cup is the regular-season division winner, not playoff runner-up.
+- Preserves the agreed 15-section league rulebook.
+- Preserves the v0.7.3 server-profile, auto-sign-in validation, and change-password client work.
+- Android package remains com.usautodarts.league.
+- Version code 74.
+
+SERVER PATCH STILL PENDING
+- POST /api/auth/change-password still needs to be added to the Windows server.
+- Remaining server-dependent app behavior will be addressed in the planned server patch after app work.

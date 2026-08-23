@@ -1,0 +1,28 @@
+US AUTODARTS LEAGUE UNIFIED APP
+Production-connected unified Android builder
+App version: 0.7.10
+Android package: com.usautodarts.league
+Production API: https://api.usautodartsleague.com
+
+Primary public/player endpoints used:
+- GET /health
+- POST /api/auth/login
+- POST /api/auth/change-password
+- GET /api/divisions
+- GET /api/seasons
+- GET /api/matches
+- GET /api/standings?division_id=...&season_id=...
+- GET /api/announcements
+- GET /api/rules
+- GET /api/awards
+
+Forward-compatible endpoint planned for the next server patch:
+- GET /api/award-catalog
+  Returns official award metadata and optional server-hosted image_url artwork.
+
+Role behavior:
+- Player: normal app; Server menu hidden.
+- Moderator: restricted Server tools; no match creation.
+- Manager: full Server tools including Season Setup; no match creation.
+
+No Cloudflare tunnel token or server admin secret is embedded in the APK.

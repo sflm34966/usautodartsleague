@@ -1,0 +1,32 @@
+workflows:
+  usadl-android-apk:
+    name: US AutoDarts League Android APK
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    environment:
+      node: 22.14.0
+      java: 17
+      vars:
+        EXPO_NO_TELEMETRY: "1"
+    scripts:
+      - name: Install npm dependencies
+        script: |
+          npm install
+
+      - name: Generate Android project with Expo
+        script: |
+          npx expo prebuild --platform android --clean --no-install
+
+      - name: Configure Android SDK
+        script: |
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/android/local.properties"
+
+      - name: Build installable debug APK
+        script: |
+          cd android
+          chmod +x gradlew
+          ./gradlew app:assembleDebug
+
+    artifacts:
+      - android/app/build/outputs/apk/debug/*.apk
+      - android/app/build/outputs/logs/*.txt

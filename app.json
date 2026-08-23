@@ -1,0 +1,49 @@
+{
+  "expo": {
+    "name": "US AutoDarts League",
+    "slug": "us-autodarts-league",
+    "version": "0.7.15",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "android": {
+      "package": "com.usautodarts.league",
+      "versionCode": 85,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#06101F"
+      }
+    },
+    "ios": {
+      "bundleIdentifier": "com.usautodarts.league",
+      "config": {
+        "usesNonExemptEncryption": false
+      }
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow US AutoDarts League to access your photos so you can choose a profile picture and upload AutoDarts match-result screenshot evidence.",
+          "cameraPermission": "Allow US AutoDarts League to use your camera for profile pictures.",
+          "microphonePermission": false
+        }
+      ],
+      [
+        "expo-secure-store",
+        {
+          "configureAndroidBackup": true
+        }
+      ]
+    ],
+    "extra": {
+      "apiBaseUrl": "https://api.usautodartsleague.com",
+      "roleBasedServerTools": true
+    },
+    "icon": "./assets/icon.png",
+    "splash": {
+      "image": "./assets/splash-logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#06101F"
+    }
+  }
+}

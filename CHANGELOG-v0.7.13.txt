@@ -1,0 +1,10 @@
+US AutoDarts League v0.7.13
+
+ANDROID SYSTEM BACK / EDGE-SWIPE FIX
+
+- Intercepts Android hardware/system Back events so a right-edge system gesture no longer closes the app.
+- In app submenus, Android Back/right-edge gesture now uses the existing app back-history stack.
+- In Manager and Moderator server tools, Android Back/right-edge gesture now uses each panel's own back stack.
+- Top-level signed-in screens consume Android Back so an accidental edge swipe cannot exit the APK.
+- Left-swipe forward navigation remains handled by the in-app direct touch observer.
+- Settings marker: APP v0.7.13 • ANDROID BACK SWIPE FIX.

@@ -1,0 +1,15 @@
+US AutoDarts League Unified App v0.7.5
+===========================================
+
+TROPHIES SETTINGS GUIDE
+- Settings now has a page labeled Trophies.
+- The page shows the picture, name, and meaning/earning condition for every active championship trophy, performance award, and special-achievement badge.
+- Trophy and badge artwork remains aligned to the approved league trophy-board reference.
+- Division Runner-Up remains removed from the active award set.
+
+INHERITED FROM v0.7.4 / v0.7.3
+- One unified APK with role-based Server menu visibility.
+- Player profile name and screen name are server-controlled/read-only.
+- Keep-signed-in revalidates against the server.
+- Change-password UI is ready; the server endpoint is still pending the planned server patch.
+- Official 15-section league rulebook remains included.

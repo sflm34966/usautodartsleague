@@ -1,0 +1,8 @@
+US AutoDarts League Unified App v0.7.14
+
+- Match screenshot evidence is now actually uploaded to the league server.
+- Server receipt confirmation replaces the old local-only placeholder message.
+- Match cards display how many screenshots the server has received.
+- Completed match history shows stored evidence count.
+- Preserves v0.7.13 Android Back/swipe navigation work.
+- Production API remains https://api.usautodartsleague.com.

@@ -1,0 +1,14 @@
+US AutoDarts League v0.7.12 Swipe Test
+
+1. Install v0.7.12 over the existing app.
+2. Sign in and open Settings.
+3. Confirm bottom of Settings says: APP v0.7.12 • DIRECT TOUCH SWIPE
+4. Tap League Rules.
+5. Swipe RIGHT horizontally across the middle of the rule list while your finger is still on the screen.
+   Expected: return to Settings.
+6. Swipe LEFT horizontally across Settings.
+   Expected: return forward to League Rules.
+7. Vertical scrolling should still work normally.
+
+This build does not use react-native-gesture-handler for navigation.
+The ScrollView that owns the Android touch stream observes the swipe directly.
