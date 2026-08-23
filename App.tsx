@@ -428,6 +428,10 @@ const[serverAwardCatalog,setServerAwardCatalog]=useState<any[]>(bundledAwardCata
 const[serverEarnedAwards,setServerEarnedAwards]=useState<any[]>([]);
 const[serverSeasonStats,setServerSeasonStats]=useState<any>({});
 const[serverCareerStats,setServerCareerStats]=useState<any>({});
+const[selectedPlayerSeasonStats,setSelectedPlayerSeasonStats]=useState<any>({});
+const[selectedPlayerCareerStats,setSelectedPlayerCareerStats]=useState<any>({});
+const[selectedPlayerStatsLoading,setSelectedPlayerStatsLoading]=useState(false);
+const[selectedPlayerStatsError,setSelectedPlayerStatsError]=useState("");
 const[managerTournament,setManagerTournament]=useState<any>(null);
 const[managerTournamentTab,setManagerTournamentTab]=useState("Matches");
 const[announcementPopup,setAnnouncementPopup]=useState<any>(null);
@@ -530,6 +534,38 @@ const refreshOwnStats=async(seasonId:number|string=0)=>{
     setServerSeasonStats(season&&typeof season==="object"?season:{});
   }catch{}
 };
+const playerIdForName=(name:string)=>{
+  const needle=String(name||"").trim().toLowerCase();
+  if(!needle)return 0;
+  const ownName=String(currentPlayer?.display_name||currentPlayer?.username||"").trim().toLowerCase();
+  if(needle===ownName&&Number(currentPlayer?.id||0)>0)return Number(currentPlayer.id);
+  const rows=Object.values(serverStandings).flat() as any[];
+  const row=rows.find((r:any)=>String(r?.player??r?.display_name??r?.username??"").trim().toLowerCase()===needle);
+  const standingID=Number(row?.player_id??row?.id??0);
+  if(standingID>0)return standingID;
+  for(const m of serverMatches){
+    if(String(m?.player1_name||"").trim().toLowerCase()===needle&&Number(m?.player1_id||0)>0)return Number(m.player1_id);
+    if(String(m?.player2_name||"").trim().toLowerCase()===needle&&Number(m?.player2_id||0)>0)return Number(m.player2_id);
+  }
+  return 0;
+};
+const refreshSelectedPlayerStats=async(name:string,seasonId:number|string=0)=>{
+  const pid=playerIdForName(name);
+  if(pid<=0){setSelectedPlayerSeasonStats({});setSelectedPlayerCareerStats({});setSelectedPlayerStatsError("Player stats could not be matched to a server player ID.");return;}
+  setSelectedPlayerStatsLoading(true);
+  setSelectedPlayerStatsError("");
+  try{
+    const sid=String(seasonId||"");
+    const base=`/api/player-stats?player_id=${encodeURIComponent(String(pid))}`;
+    const[career,season]=await Promise.all([apiRequest(base),sid?apiRequest(`${base}&season_id=${encodeURIComponent(sid)}`):apiRequest(base)]);
+    setSelectedPlayerCareerStats(career&&typeof career==="object"?career:{});
+    setSelectedPlayerSeasonStats(season&&typeof season==="object"?season:{});
+  }catch(e:any){
+    setSelectedPlayerSeasonStats({});
+    setSelectedPlayerCareerStats({});
+    setSelectedPlayerStatsError(String(e?.message||e||"Player statistics could not be loaded."));
+  }finally{setSelectedPlayerStatsLoading(false);}
+};
 const refreshTournamentForSeason=async(seasonId:string,fallbackSource:any[]=serverMatches)=>{
   const q=seasonId?`?season_id=${encodeURIComponent(seasonId)}`:"";
   try{
@@ -580,6 +616,7 @@ const refreshServerData=async()=>{
 useEffect(()=>{if(signedIn)refreshServerData();},[signedIn]);
 useEffect(()=>{if(signedIn&&selectedSeasonId){if(serverDivisions.length)refreshStandingsForSeason(selectedSeasonId);refreshTournamentForSeason(selectedSeasonId);}},[selectedSeasonId]);
 useEffect(()=>{if(signedIn&&(tab==="Home"||tab==="Stats"||tab==="PlayerStats")){refreshOwnStats(currentSeasonId||selectedSeasonId||0);}},[tab,signedIn,currentSeasonId]);
+useEffect(()=>{if(signedIn&&tab==="PlayerStats"&&selectedPlayer){refreshSelectedPlayerStats(selectedPlayer,selectedSeasonId||currentSeasonId||0);}},[tab,signedIn,selectedPlayer,selectedSeasonId,currentSeasonId,serverStandings,serverMatches]);
 useEffect(()=>{if(signedIn&&(tab==="Tournament"||tab==="ManagerTournament"))refreshManagerTournament();},[tab,signedIn]);
 useEffect(()=>{
   if(!signedIn)return;
@@ -714,7 +751,7 @@ if(showSplash)return wrap(<Splash onDone={()=>setShowSplash(false)}/>);
 if(!authReady)return wrap(<SafeAreaView style={s.safe}><AmericanFlagBackground/><View style={s.signInOverlay}><View style={s.authCheckCard}><Text style={s.signInTitle}>VERIFYING SAVED SIGN-IN</Text><Text style={s.signInSub}>Checking your saved credentials against the league server…</Text></View></View></SafeAreaView>);
 if(!signedIn)return wrap(<SignIn initialMessage={autoSignInMessage} onSignedIn={(player:any)=>{applyServerPlayer(player);setSignedIn(true);setAutoSignInMessage("")}}/>);
 
-const openPlayer=(name:string)=>{setSelectedPlayer(name);setTab("PlayerStats")};
+const openPlayer=(name:string)=>{setSelectedPlayerSeasonStats({});setSelectedPlayerCareerStats({});setSelectedPlayerStatsError("");setSelectedPlayer(name);setTab("PlayerStats")};
 const PlayerLink=({name}:{name:string})=><Pressable onPress={()=>openPlayer(name)}><Text style={s.inlinePlayerLink}>{name}</Text></Pressable>;
 const isCompletedMatch=(m:any)=>{const st=String(m?.status||"").toLowerCase();return st==="completed"||st==="approved"||m?.approved===true;};
 const visibleMatches=(selectedSeasonId?serverMatches.filter((m:any)=>Number(m.season_id)===Number(selectedSeasonId)):serverMatches);
@@ -749,16 +786,16 @@ const wins=Number(live?.wins??0);
 const losses=Number(live?.losses??0);
 const winPct=played?`${((wins/played)*100).toFixed(1)}%`:"0.0%";
 const selectedIsMe=String(selectedPlayer).toLowerCase()===String(currentPlayer?.display_name||currentPlayer?.username||"").toLowerCase();
-const profileSeasonStats=selectedIsMe?serverSeasonStats:{};
-const profileCareerStats=selectedIsMe?serverCareerStats:{};
+const profileSeasonStats=selectedIsMe?serverSeasonStats:selectedPlayerSeasonStats;
+const profileCareerStats=selectedIsMe?serverCareerStats:selectedPlayerCareerStats;
 const recent=selectedIsMe?completedMatches.slice(0,5):[];
 body=<ScrollView showsVerticalScrollIndicator={false}>
 <View style={s.profileHeaderRow}><Pressable onPress={()=>setTab("Standings")} hitSlop={8}><Text style={s.profileBack}>‹</Text></Pressable><Text style={s.profilePageTitle}>PLAYER PROFILE</Text><Text style={s.profileMore}>•••</Text></View>
 <View style={s.profileHero}><View style={s.profileAvatarWrap}><View style={s.profileAvatarCircle}><Text style={s.profileAvatarInitial}>{selectedPlayer.slice(0,1).toUpperCase()}</Text></View></View><View style={s.profileHeroRight}><Text style={s.profileBigName}>{selectedPlayer.toUpperCase()}</Text><View style={s.profileAwardsLarge}><AwardsOnly name={selectedPlayer}/></View></View></View>
 <View style={s.profileMetaRow}><View style={s.profileMetaItem}><Text style={s.profileMetaIcon}>🛡</Text><Text style={s.profileMetaLabel}>DIVISION</Text><Text style={s.profileMetaValue}>{selectedIsMe?(currentPlayer?.division_name||"—"):selectedDivision}</Text></View><View style={s.profileMetaDivider}/><View style={s.profileMetaItem}><Text style={s.profileMetaIcon}>▥</Text><Text style={s.profileMetaLabel}>RANK</Text><Text style={s.profileMetaValue}>{live?.rank?`#${live.rank}`:"—"}</Text></View><View style={s.profileMetaDivider}/><View style={s.profileMetaItem}><Text style={s.profileMetaIcon}>▣</Text><Text style={s.profileMetaLabel}>MATCHES</Text><Text style={s.profileMetaValue}>{played}</Text></View><View style={s.profileMetaDivider}/><View style={s.profileMetaItem}><Text style={s.profileMetaIcon}>◷</Text><Text style={s.profileMetaLabel}>TIME ZONE</Text><Text style={s.profileMetaValue}>{selectedIsMe?(US_TIME_ZONES.find(z=>z.value===(currentPlayer?.timezone||timeZone))?.label||"—"):"—"}</Text></View></View>
 <View style={s.profileTabs}><Text style={[s.profileTab,s.profileTabActive]}>OVERVIEW</Text><Text style={s.profileTab}>MATCH HISTORY</Text><Text style={s.profileTab}>STATS DETAIL</Text><Text style={s.profileTab}>ACHIEVEMENTS</Text></View>
-<View style={s.profileSectionCard}><View style={s.profileSectionHeader}><Text style={s.profileSectionTitle}>SEASON STATS</Text><Text style={s.profileSeasonYear}>SERVER DATA</Text></View><View style={s.profileStatsMatrix}>{[["MATCHES",String(played),"#ffffff"],["WINS",String(wins),"#35c759"],["LOSSES",String(losses),"#ff5d67"],["WIN %",winPct,"#9b6cff"],["3-DART AVG",selectedIsMe?formatStat(profileSeasonStats.three_dart_average):"—","#2f80ed"],["FIRST 9",selectedIsMe?formatStat(profileSeasonStats.first9_average):"—","#f2c94c"],["CHECKOUT %",selectedIsMe?`${formatStat(profileSeasonStats.checkout_pct,1)}%`:"—","#2ec4b6"],["HIGH FINISH",selectedIsMe?formatStatInt(profileSeasonStats.highest_checkout):"—","#ff453a"]].map((x:any,i:number)=><View key={i} style={s.profileStatBox}><Text style={s.profileStatLabel}>{x[0]}</Text><Text style={[s.profileStatValue,{color:x[2]}]}>{x[1]}</Text></View>)}</View><Text style={s.statsNote}>{selectedIsMe?`LIVE SERVER STATS • ${formatStatInt(profileSeasonStats.matches_with_stats)} approved match${Number(profileSeasonStats.matches_with_stats||0)===1?"":"es"} with imported dart statistics.`:"Detailed dart statistics for other players are not exposed to a player account."}</Text></View>
-<View style={s.profileSectionCard}><View style={s.profileSectionHeader}><Text style={s.profileSectionTitle}>CAREER STATS</Text><Text style={s.profileSeasonYear}>SERVER DATA ONLY</Text></View><View style={s.profileStatsMatrix}>{[["MATCHES",String(played),"#ffffff"],["WINS",String(wins),"#35c759"],["LOSSES",String(losses),"#ff5d67"],["WIN %",winPct,"#9b6cff"],["3-DART AVG",selectedIsMe?formatStat(profileCareerStats.three_dart_average):"—","#2f80ed"],["FIRST 9",selectedIsMe?formatStat(profileCareerStats.first9_average):"—","#f2c94c"],["CHECKOUT %",selectedIsMe?`${formatStat(profileCareerStats.checkout_pct,1)}%`:"—","#2ec4b6"],["HIGH FINISH",selectedIsMe?formatStatInt(profileCareerStats.highest_checkout):"—","#ff453a"]].map((x:any,i:number)=><View key={i} style={s.profileStatBox}><Text style={s.profileStatLabel}>{x[0]}</Text><Text style={[s.profileStatValue,{color:x[2]}]}>{x[1]}</Text></View>)}</View></View>
+<View style={s.profileSectionCard}><View style={s.profileSectionHeader}><Text style={s.profileSectionTitle}>SEASON STATS</Text><Text style={s.profileSeasonYear}>SERVER DATA</Text></View><View style={s.profileStatsMatrix}>{[["MATCHES",String(played),"#ffffff"],["WINS",String(wins),"#35c759"],["LOSSES",String(losses),"#ff5d67"],["WIN %",winPct,"#9b6cff"],["3-DART AVG",selectedPlayerStatsLoading&&!selectedIsMe?"…":formatStat(profileSeasonStats.three_dart_average),"#2f80ed"],["FIRST 9",selectedPlayerStatsLoading&&!selectedIsMe?"…":formatStat(profileSeasonStats.first9_average),"#f2c94c"],["CHECKOUT %",selectedPlayerStatsLoading&&!selectedIsMe?"…":`${formatStat(profileSeasonStats.checkout_pct,1)}%`,"#2ec4b6"],["HIGH FINISH",selectedPlayerStatsLoading&&!selectedIsMe?"…":formatStatInt(profileSeasonStats.highest_checkout),"#ff453a"]].map((x:any,i:number)=><View key={i} style={s.profileStatBox}><Text style={s.profileStatLabel}>{x[0]}</Text><Text style={[s.profileStatValue,{color:x[2]}]}>{x[1]}</Text></View>)}</View><Text style={s.statsNote}>{selectedPlayerStatsError&&!selectedIsMe?`SERVER STATS ERROR • ${selectedPlayerStatsError}`:`LIVE SERVER STATS • ${formatStatInt(profileSeasonStats.matches_with_stats)} approved match${Number(profileSeasonStats.matches_with_stats||0)===1?"":"es"} with imported dart statistics.`}</Text></View>
+<View style={s.profileSectionCard}><View style={s.profileSectionHeader}><Text style={s.profileSectionTitle}>CAREER STATS</Text><Text style={s.profileSeasonYear}>SERVER DATA ONLY</Text></View><View style={s.profileStatsMatrix}>{[["MATCHES",String(played),"#ffffff"],["WINS",String(wins),"#35c759"],["LOSSES",String(losses),"#ff5d67"],["WIN %",winPct,"#9b6cff"],["3-DART AVG",selectedPlayerStatsLoading&&!selectedIsMe?"…":formatStat(profileCareerStats.three_dart_average),"#2f80ed"],["FIRST 9",selectedPlayerStatsLoading&&!selectedIsMe?"…":formatStat(profileCareerStats.first9_average),"#f2c94c"],["CHECKOUT %",selectedPlayerStatsLoading&&!selectedIsMe?"…":`${formatStat(profileCareerStats.checkout_pct,1)}%`,"#2ec4b6"],["HIGH FINISH",selectedPlayerStatsLoading&&!selectedIsMe?"…":formatStatInt(profileCareerStats.highest_checkout),"#ff453a"]].map((x:any,i:number)=><View key={i} style={s.profileStatBox}><Text style={s.profileStatLabel}>{x[0]}</Text><Text style={[s.profileStatValue,{color:x[2]}]}>{x[1]}</Text></View>)}</View></View>
 <View style={s.profileSectionCard}><View style={s.profileRecentHeader}><Text style={s.profileSectionTitle}>RECENT MATCHES</Text></View>{recent.length?recent.map((m:any)=>{const me=Number(currentPlayer?.id||0);const isP1=Number(m.player1_id)===me;const opponent=isP1?m.player2_name:m.player1_name;const myScore=isP1?m.player1_legs:m.player2_legs;const oppScore=isP1?m.player2_legs:m.player1_legs;const result=matchResultForMe(m);return <View key={String(m.id)} style={s.profileMatchRow}><View style={[s.profileResultBadge,result==="L"&&s.profileResultLoss]}><Text style={s.profileResultText}>{result||"•"}</Text></View><View style={s.profileOpponentAvatar}><Text style={s.profileOpponentInitial}>{String(opponent||"?")[0]}</Text></View><View style={s.profileOpponentInfo}><Text style={s.profileOpponentName}>vs {opponent||"Opponent"}</Text><Text style={s.profileOpponentSub}>Server match record</Text></View><Text style={[s.profileScore,result==="L"&&{color:"#ff453a"}]}>{myScore??"–"} - {oppScore??"–"}</Text><View style={s.profileMatchDateWrap}><Text style={s.profileMatchDate}>{localMatchLabel(m,timeZone)}</Text><Text style={s.profileMatchType}>Completed</Text></View></View>}):<View style={s.emptyStateCard}><Text style={s.emptyStateTitle}>NO MATCH HISTORY AVAILABLE</Text><Text style={s.emptyStateText}>{selectedIsMe?"Completed server matches will appear here.":"The public app does not expose another player's private match feed."}</Text></View>}</View>
 </ScrollView>;
 }else if(tab==="Stats"){
@@ -785,7 +822,7 @@ else if(tab==="Settings")body=<ScrollView showsVerticalScrollIndicator={false}>
 <Pressable style={s.settingsRow} onPress={()=>setTab("TrophyCase")}><View><Text style={s.settingsTitle}>Trophies</Text><Text style={s.settingsSub}>Pictures and meanings for every official trophy and badge</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>
 {serverRole==="manager"?<Pressable style={[s.settingsRow,s.managerSettingsRow]} onPress={()=>setTab("ManagerServer")}><View style={{flex:1}}><Text style={s.settingsTitle}>Server</Text><Text style={s.settingsSub}>Full league management • read/write access to the Windows server</Text></View><View style={s.managerNewPill}><Text style={s.managerNewText}>MANAGER</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>:serverRole==="moderator"?<Pressable style={[s.settingsRow,s.managerSettingsRow]} onPress={()=>setTab("ModeratorServer")}><View style={{flex:1}}><Text style={s.settingsTitle}>Server</Text><Text style={s.settingsSub}>Add players, reset passwords, reschedule generated matches, and enter results</Text></View><View style={s.managerNewPill}><Text style={s.managerNewText}>MODERATOR</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>:null}
 <Pressable style={s.settingsRow} onPress={()=>setTab("Contact")}><View><Text style={s.settingsTitle}>Contact</Text><Text style={s.settingsSub}>League support and contact information</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>
-<Text style={[s.settingsSub,{textAlign:"center",marginTop:12,marginBottom:8}]}>{Platform.OS==="web"?"WEB v0.7.17":"APP v0.7.17"} • LIVE SERVER STATS</Text>
+<Text style={[s.settingsSub,{textAlign:"center",marginTop:12,marginBottom:8}]}>{Platform.OS==="web"?"WEB v0.7.18":"APP v0.7.18"} • LIVE SERVER STATS</Text>
 </ScrollView>;
 else if(tab==="ProfileSetup")body=<ScrollView showsVerticalScrollIndicator={false}>
 <Pressable onPress={()=>setTab("Settings")}><Text style={s.backLink}>‹ BACK TO SETTINGS</Text></Pressable>
