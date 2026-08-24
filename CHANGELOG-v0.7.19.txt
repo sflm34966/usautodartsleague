@@ -1,0 +1,10 @@
+US AutoDarts League App v0.7.19
+
+- Past Matches now has a dropdown for My Matches, every active league player, and Entire League.
+- Upcoming matches remain limited to the signed-in player.
+- Past match player names link to full player profiles/stats.
+- Manager-created tournament player names are now profile links in matches and live brackets.
+- Manager tournament signup/Add-Drop and bracket player names are profile links for managers.
+- Official tournament/playoff match names are also profile links.
+- Player profile Recent Matches can now show server-backed history for other league players.
+- Requires USADL Server v0.9.1 or newer for league-wide/player match history.
