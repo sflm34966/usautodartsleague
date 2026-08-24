@@ -1,6 +1,6 @@
 {
   "name": "us-autodarts-league",
-  "version": "0.7.20",
+  "version": "0.7.21",
   "private": true,
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {

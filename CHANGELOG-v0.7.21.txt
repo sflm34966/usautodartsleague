@@ -1,0 +1,7 @@
+US AutoDarts League App v0.7.21
+
+- League-visible awards: badges/trophies for other players now load from the server and appear on their profile/name displays.
+- Player profile award loading now requests the selected player ID directly.
+- Added Best Leg (darts) to My Stats.
+- Added Best Leg to season and career player-profile stats.
+- Requires USADL Server v0.9.3 for league-wide award visibility and verified 9-Dart badge cleanup.
