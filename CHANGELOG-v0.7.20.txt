@@ -1,0 +1,5 @@
+US AutoDarts League App v0.7.20
+
+- Fixed Past Matches -> Entire League showing no results when an older stored result is approved but not tagged exactly as status=completed.
+- League history now loads the league match list and recognizes completed, approved-status, and approved-flag results.
+- Existing player-history dropdown and tournament profile hyperlinks remain unchanged.

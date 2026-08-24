@@ -540,13 +540,17 @@ const refreshOwnStats=async(seasonId:number|string=0)=>{
   }catch{}
 };
 const refreshLeagueHistory=async(seasonId:number|string="")=>{
+  const isPast=(m:any)=>{const st=String(m?.status||"").toLowerCase();return st==="completed"||st==="approved"||m?.approved===true;};
   try{
     const sid=String(seasonId||"");
     const q=sid?`&season_id=${encodeURIComponent(sid)}`:"";
-    const rows=await apiRequest(`/api/matches?scope=history&view=league${q}`,{method:"GET"});
-    setServerLeagueHistoryMatches(Array.isArray(rows)?rows:[]);
+    // Ask for the whole league match list and apply the same completed/approved
+    // rule locally. This also keeps history working against older servers whose
+    // history endpoint was too strict about the stored Status field.
+    const rows=await apiRequest(`/api/matches?view=league${q}`,{method:"GET"});
+    setServerLeagueHistoryMatches(Array.isArray(rows)?rows.filter(isPast):[]);
   }catch{
-    setServerLeagueHistoryMatches(serverMatches.filter((m:any)=>String(m?.status||"").toLowerCase()==="completed"));
+    setServerLeagueHistoryMatches(serverMatches.filter(isPast));
   }
 };
 const playerIdForName=(name:string)=>{
@@ -869,7 +873,7 @@ else if(tab==="Settings")body=<ScrollView showsVerticalScrollIndicator={false}>
 <Pressable style={s.settingsRow} onPress={()=>setTab("TrophyCase")}><View><Text style={s.settingsTitle}>Trophies</Text><Text style={s.settingsSub}>Pictures and meanings for every official trophy and badge</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>
 {serverRole==="manager"?<Pressable style={[s.settingsRow,s.managerSettingsRow]} onPress={()=>setTab("ManagerServer")}><View style={{flex:1}}><Text style={s.settingsTitle}>Server</Text><Text style={s.settingsSub}>Full league management • read/write access to the Windows server</Text></View><View style={s.managerNewPill}><Text style={s.managerNewText}>MANAGER</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>:serverRole==="moderator"?<Pressable style={[s.settingsRow,s.managerSettingsRow]} onPress={()=>setTab("ModeratorServer")}><View style={{flex:1}}><Text style={s.settingsTitle}>Server</Text><Text style={s.settingsSub}>Add players, reset passwords, reschedule generated matches, and enter results</Text></View><View style={s.managerNewPill}><Text style={s.managerNewText}>MODERATOR</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>:null}
 <Pressable style={s.settingsRow} onPress={()=>setTab("Contact")}><View><Text style={s.settingsTitle}>Contact</Text><Text style={s.settingsSub}>League support and contact information</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>
-<Text style={[s.settingsSub,{textAlign:"center",marginTop:12,marginBottom:8}]}>{Platform.OS==="web"?"WEB v0.7.19":"APP v0.7.19"} • LIVE SERVER STATS</Text>
+<Text style={[s.settingsSub,{textAlign:"center",marginTop:12,marginBottom:8}]}>{Platform.OS==="web"?"WEB v0.7.20":"APP v0.7.20"} • LIVE SERVER STATS</Text>
 </ScrollView>;
 else if(tab==="ProfileSetup")body=<ScrollView showsVerticalScrollIndicator={false}>
 <Pressable onPress={()=>setTab("Settings")}><Text style={s.backLink}>‹ BACK TO SETTINGS</Text></Pressable>
