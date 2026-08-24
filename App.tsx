@@ -481,6 +481,25 @@ const clearStoredAuth=async(clearPassword=true)=>{
   }
 };
 
+const logout=async()=>{
+  try{
+    await clearStoredAuth(true);
+  }finally{
+    runtimeAuthToken=null;
+    setAnnouncementPopup(null);
+    setCurrentPlayer(null);
+    setSelectedPlayer(null);
+    setSelectedPlayerId(0);
+    setServerEarnedAwards([]);
+    Object.keys(playerAwards).forEach(k=>delete playerAwards[k]);
+    navBackRef.current=[];
+    navForwardRef.current=[];
+    setTabRaw("Home");
+    setAutoSignInMessage("You have been logged out.");
+    setSignedIn(false);
+  }
+};
+
 useEffect(()=>{
   (async()=>{
     try{
@@ -889,7 +908,8 @@ else if(tab==="Settings")body=<ScrollView showsVerticalScrollIndicator={false}>
 <Pressable style={s.settingsRow} onPress={()=>setTab("TrophyCase")}><View><Text style={s.settingsTitle}>Trophies</Text><Text style={s.settingsSub}>Pictures and meanings for every official trophy and badge</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>
 {serverRole==="manager"?<Pressable style={[s.settingsRow,s.managerSettingsRow]} onPress={()=>setTab("ManagerServer")}><View style={{flex:1}}><Text style={s.settingsTitle}>Server</Text><Text style={s.settingsSub}>Full league management • read/write access to the Windows server</Text></View><View style={s.managerNewPill}><Text style={s.managerNewText}>MANAGER</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>:serverRole==="moderator"?<Pressable style={[s.settingsRow,s.managerSettingsRow]} onPress={()=>setTab("ModeratorServer")}><View style={{flex:1}}><Text style={s.settingsTitle}>Server</Text><Text style={s.settingsSub}>Add players, reset passwords, reschedule generated matches, and enter results</Text></View><View style={s.managerNewPill}><Text style={s.managerNewText}>MODERATOR</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>:null}
 <Pressable style={s.settingsRow} onPress={()=>setTab("Contact")}><View><Text style={s.settingsTitle}>Contact</Text><Text style={s.settingsSub}>League support and contact information</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>
-<Text style={[s.settingsSub,{textAlign:"center",marginTop:12,marginBottom:8}]}>{Platform.OS==="web"?"WEB v0.7.21":"APP v0.7.21"} • LIVE SERVER STATS</Text>
+<Pressable style={[s.settingsRow,s.logoutSettingsRow]} onPress={logout}><View><Text style={[s.settingsTitle,s.logoutSettingsTitle]}>Logout</Text><Text style={s.settingsSub}>Sign out of this account on this device</Text></View><Text style={[s.settingsArrow,s.logoutSettingsTitle]}>›</Text></Pressable>
+<Text style={[s.settingsSub,{textAlign:"center",marginTop:12,marginBottom:8}]}>{Platform.OS==="web"?"WEB v0.7.22":"APP v0.7.22"} • LIVE SERVER STATS</Text>
 </ScrollView>;
 else if(tab==="ProfileSetup")body=<ScrollView showsVerticalScrollIndicator={false}>
 <Pressable onPress={()=>setTab("Settings")}><Text style={s.backLink}>‹ BACK TO SETTINGS</Text></Pressable>
@@ -973,7 +993,7 @@ function PlayerNameWithAwards({name,onPress,compact=false}:{name:string;onPress:
     </Pressable>
 
     <View style={s.awardsInline}>
-      {visible.map((a:any,i:number)=><AwardMark key={`${a[0]}-${i}`} type={a[0]} count={a[1]} compact={compact}/>)}
+      {visible.map((a:any,i:number)=><AwardMark key={`${a.type}-${i}`} type={String(a.type||"award")} count={Number(a.count||1)} compact={compact}/>)}
       {hasMore?<Pressable onPress={onPress} hitSlop={6}><Text style={[s.awardPlus,compact&&s.awardPlusCompact]}>+</Text></Pressable>:null}
     </View>
   </View>
@@ -997,7 +1017,7 @@ function AwardsOnly({name}:{name:string}){
       style={[s.profileAwardsOnlyRow,expanded&&s.profileAwardsExpandedRow]}
       onLayout={e=>setRowWidth(e.nativeEvent.layout.width)}
     >
-      {visible.map((a:any,i:number)=><AwardMark key={`${a[0]}-${i}`} type={a[0]} count={a[1]} profileLarge/>)}
+      {visible.map((a:any,i:number)=><AwardMark key={`${a.type}-${i}`} type={String(a.type||"award")} count={Number(a.count||1)} profileLarge/>)}
       {!expanded&&hasMore?<Pressable
         onPress={()=>setExpanded(true)}
         hitSlop={10}
@@ -1042,7 +1062,7 @@ function awardImageSource(type:string){
   // Compatibility fallback for old locally cached demo award names.
   if(type==="seasonChampion")return require("./assets/award-silver-cup.png");
   if(type==="performance")return require("./assets/award-most-180s.png");
-  return require("./assets/award-badge.png");
+  return require("./assets/award-trophy.png");
 }
 
 function AwardMark({type,count,compact=false,profileLarge=false}:{type:string;count:number;compact?:boolean;profileLarge?:boolean}){
@@ -1064,7 +1084,7 @@ function AwardMark({type,count,compact=false,profileLarge=false}:{type:string;co
   </View>
 }
 
-function AwardArtwork({award,style}:{award:any;style:any}){const remote=absoluteAwardUrl(award?.image_url);const[useRemote,setUseRemote]=useState(Boolean(remote));return <Image source={useRemote?{uri:remote}:awardImageSource(String(award?.type||"award"))} onError={()=>setUseRemote(false)} resizeMode="contain" style={style}/>}
+function AwardArtwork({award,style}:{award:any;style:any}){const remote=absoluteAwardUrl(award?.artwork_url||award?.image_url);const[useRemote,setUseRemote]=useState(Boolean(remote));return <Image source={useRemote?{uri:remote}:awardImageSource(String(award?.type||"award"))} onError={()=>setUseRemote(false)} resizeMode="contain" style={style}/>}
 function TrophyCase({onBack,catalog,earned}:{onBack:()=>void;catalog:any[];earned:any[]}){
   const official=(Array.isArray(catalog)&&catalog.length?catalog:bundledAwardCatalog).filter((a:any)=>a.active!==false);const earnedRows=Array.isArray(earned)?earned:[];const earnedMap=new Map(earnedRows.map((a:any)=>[String(a.type),a]));const categories=["Championship Trophies","Performance Awards","Special Achievements",...Array.from(new Set(official.map((a:any)=>a.category))).filter((x:any)=>!["Championship Trophies","Performance Awards","Special Achievements"].includes(String(x)))];
   return <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={s.trophyCasePage}><Pressable onPress={onBack}><Text style={s.backLink}>‹ BACK TO SETTINGS</Text></Pressable><View style={s.trophyHero}><Text style={s.trophyKicker}>US AUTODARTS LEAGUE</Text><Text style={s.trophyHeroTitle}>TROPHIES & BADGES</Text><Text style={s.trophyHeroCount}>{official.length} OFFICIAL AWARDS</Text><Text style={s.trophyHeroSub}>Your earned awards come from the league server. The official catalog below also syncs from the server when the server catalog endpoint is available; bundled artwork remains the fallback for the current set.</Text></View><View style={s.trophySection}><View style={s.trophySectionHeadingRow}><Text style={s.trophySectionTitle}>YOUR AWARDS</Text><View style={s.trophySectionLine}/></View>{earnedRows.length?<View style={s.trophyGrid}>{earnedRows.map((e:any)=>{const a=official.find((x:any)=>String(x.type)===String(e.type))||{type:e.type,name:e.name||e.type,category:"Earned Award",detail:"Award earned and stored on the league server.",image_url:e.image_url};return <View key={String(e.id||e.type)} style={s.trophyCard}><View style={s.trophyImageWrap}><View><AwardArtwork award={a} style={s.trophyImage}/><Text style={s.awardCountProfile}>{Number(e.count||1)}</Text></View></View><View style={s.trophyCardText}><Text style={s.trophyName}>{a.name}</Text><Text style={s.trophyMeaningLabel}>EARNED • COUNT {Number(e.count||1)}</Text><Text style={s.trophyDetail}>{a.detail}</Text></View></View>})}</View>:<View style={s.emptyStateCard}><Text style={s.emptyStateTitle}>NO AWARDS YET</Text><Text style={s.emptyStateText}>Awards earned on the league server will appear here automatically.</Text></View>}</View><View style={s.trophySectionHeadingRow}><Text style={s.trophySectionTitle}>AVAILABLE / OFFICIAL AWARDS</Text><View style={s.trophySectionLine}/></View>{categories.map(category=><View key={category} style={s.trophySection}><View style={s.trophySectionHeadingRow}><Text style={s.trophySectionTitle}>{String(category).toUpperCase()}</Text><View style={s.trophySectionLine}/></View><View style={s.trophyGrid}>{official.filter((a:any)=>a.category===category).map((a:any)=><View key={a.type} style={s.trophyCard}><View style={s.trophyImageWrap}><AwardArtwork award={a} style={s.trophyImage}/></View><View style={s.trophyCardText}><Text style={s.trophyName}>{a.name}{earnedMap.has(String(a.type))?`  ✓ x${Number(earnedMap.get(String(a.type))?.count||1)}`:""}</Text><Text style={s.trophyMeaningLabel}>WHAT IT'S FOR / HOW TO EARN</Text><Text style={s.trophyDetail}>{a.detail}</Text></View></View>)}</View></View>)}<View style={s.trophyPermanentNote}><Text style={s.trophyPermanentTitle}>SERVER-LINKED CATALOG</Text><Text style={s.trophyPermanentText}>New server-defined awards and server-hosted artwork can appear here without a future APK rebuild. Existing bundled artwork stays unchanged unless the server supplies an override.</Text></View></ScrollView>;
@@ -1255,6 +1275,8 @@ flagImage:{opacity:.96}
 gearIcon:{color:"#fff",fontSize:27,fontWeight:"900"},
 headerSpacer:{width:40},
 settingsRow:{backgroundColor:"rgba(2,15,35,.88)",borderWidth:1,borderColor:"rgba(45,112,255,.55)",borderRadius:14,padding:15,marginBottom:10,flexDirection:"row",alignItems:"center",justifyContent:"space-between"},
+logoutSettingsRow:{borderColor:"rgba(230,57,70,.9)"},
+logoutSettingsTitle:{color:"#ff6b6b"},
 settingsPanel:{backgroundColor:"rgba(2,15,35,.88)",borderWidth:1,borderColor:"rgba(45,112,255,.55)",borderRadius:14,padding:16},
 settingsTitle:{color:"#fff",fontSize:16,fontWeight:"900"},
 settingsSub:{color:"#9bb0c2",fontSize:11,marginTop:4,lineHeight:16,maxWidth:"92%"},

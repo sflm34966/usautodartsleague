@@ -1,0 +1,8 @@
+US AutoDarts League App v0.7.22
+
+- Fixed award badge rendering: normalized server award objects now use their actual type/count.
+- Silver Cup now renders as Silver Cup instead of falling through to the legacy 9-Dart image.
+- Unknown award types now use a neutral USADL trophy fallback, never the 9-Dart badge.
+- Server-hosted award artwork now recognizes artwork_url.
+- Added Logout to Settings. Logout clears the saved session and Keep Me Signed In state while leaving the username available for convenience.
+- Server remains v0.9.3.
