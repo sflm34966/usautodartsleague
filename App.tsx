@@ -23,12 +23,14 @@ let runtimeAuthToken:string|null=null;
 
 async function apiRequest(path:string,options:any={}){
   const token=runtimeAuthToken||await storage.getItemAsync("league_session");
-  const headers:any={"Accept":"application/json","Content-Type":"application/json",...(options.headers||{})};
+  const {timeoutMs=8000,...fetchOptions}=options||{};
+  const headers:any={"Accept":"application/json","Content-Type":"application/json",...(fetchOptions.headers||{})};
   if(token)headers.Authorization=`Bearer ${token}`;
   const controller=new AbortController();
-  const timeout=setTimeout(()=>controller.abort(),8000);
+  const requestTimeout=Math.max(1000,Number(timeoutMs)||8000);
+  const timeout=setTimeout(()=>controller.abort(),requestTimeout);
   try{
-    const response=await fetch(`${API_BASE_URL}${path}`,{...options,headers,signal:controller.signal});
+    const response=await fetch(`${API_BASE_URL}${path}`,{...fetchOptions,headers,signal:controller.signal});
     let data:any=null;
     try{data=await response.json();}catch{}
     if(!response.ok){
@@ -704,7 +706,7 @@ const changeOwnPassword=async()=>{
   if(newPassword===currentPassword){setPasswordError("Choose a new password different from the current password.");return;}
   setPasswordWorking(true);
   try{
-    let changed:any=await apiRequest("/api/auth/change-password",{method:"POST",body:JSON.stringify({current_password:currentPassword,new_password:newPassword})});
+    let changed:any=await apiRequest("/api/auth/change-password",{method:"POST",body:JSON.stringify({current_password:currentPassword,new_password:newPassword}),timeoutMs:60000});
     let auth=changed;
     if(!auth?.token||!auth?.player){
       const username=String(currentPlayer?.username||await storage.getItemAsync("league_username")||"").trim();
@@ -909,7 +911,7 @@ else if(tab==="Settings")body=<ScrollView showsVerticalScrollIndicator={false}>
 {serverRole==="manager"?<Pressable style={[s.settingsRow,s.managerSettingsRow]} onPress={()=>setTab("ManagerServer")}><View style={{flex:1}}><Text style={s.settingsTitle}>Server</Text><Text style={s.settingsSub}>Full league management • read/write access to the Windows server</Text></View><View style={s.managerNewPill}><Text style={s.managerNewText}>MANAGER</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>:serverRole==="moderator"?<Pressable style={[s.settingsRow,s.managerSettingsRow]} onPress={()=>setTab("ModeratorServer")}><View style={{flex:1}}><Text style={s.settingsTitle}>Server</Text><Text style={s.settingsSub}>Add players, reset passwords, reschedule generated matches, and enter results</Text></View><View style={s.managerNewPill}><Text style={s.managerNewText}>MODERATOR</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>:null}
 <Pressable style={s.settingsRow} onPress={()=>setTab("Contact")}><View><Text style={s.settingsTitle}>Contact</Text><Text style={s.settingsSub}>League support and contact information</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>
 <Pressable style={[s.settingsRow,s.logoutSettingsRow]} onPress={logout}><View><Text style={[s.settingsTitle,s.logoutSettingsTitle]}>Logout</Text><Text style={s.settingsSub}>Sign out of this account on this device</Text></View><Text style={[s.settingsArrow,s.logoutSettingsTitle]}>›</Text></Pressable>
-<Text style={[s.settingsSub,{textAlign:"center",marginTop:12,marginBottom:8}]}>{Platform.OS==="web"?"WEB v0.7.22":"APP v0.7.22"} • LIVE SERVER STATS</Text>
+<Text style={[s.settingsSub,{textAlign:"center",marginTop:12,marginBottom:8}]}>{Platform.OS==="web"?"WEB v0.7.23":"APP v0.7.23"} • LIVE SERVER STATS</Text>
 </ScrollView>;
 else if(tab==="ProfileSetup")body=<ScrollView showsVerticalScrollIndicator={false}>
 <Pressable onPress={()=>setTab("Settings")}><Text style={s.backLink}>‹ BACK TO SETTINGS</Text></Pressable>

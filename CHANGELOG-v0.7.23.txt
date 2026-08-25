@@ -1,0 +1,7 @@
+US AutoDarts League App v0.7.23
+
+- Fixed false "aborted" failure after a successful player password change.
+- Normal API calls keep the existing 8-second timeout.
+- Password changes now receive a 60-second timeout because password verification, secure hashing, save, and new-session creation can take longer on the Windows server.
+- Password security, hashing, and server behavior are unchanged.
+- Server v0.9.5 or later remains compatible; no server update is required for this fix.
