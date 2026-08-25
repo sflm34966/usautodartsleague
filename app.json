@@ -2,12 +2,12 @@
   "expo": {
     "name": "US AutoDarts League",
     "slug": "us-autodarts-league",
-    "version": "0.7.23",
+    "version": "0.7.25",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "android": {
       "package": "com.usautodarts.league",
-      "versionCode": 93,
+      "versionCode": 95,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#06101F"
@@ -44,6 +44,13 @@
       "image": "./assets/splash-logo.png",
       "resizeMode": "contain",
       "backgroundColor": "#06101F"
+    },
+    "runtimeVersion": "0.7.25",
+    "updates": {
+      "enabled": true,
+      "checkAutomatically": "NEVER",
+      "fallbackToCacheTimeout": 0,
+      "url": "https://api.usautodartsleague.com/api/app-updates/manifest"
     }
   }
 }

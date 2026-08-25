@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 
 echo.
-echo US AutoDarts League - Unified Android APK Build v0.7.16
+echo US AutoDarts League - Unified Android APK Build v0.7.25
 echo ======================================================
 echo ONE APK for Player, Moderator, and Manager accounts.
 echo Role permissions are determined by the server after sign-in.
@@ -32,7 +32,7 @@ call npm.cmd install
 if errorlevel 1 goto :error
 
 echo.
-echo Starting Expo EAS Android APK build v0.7.16...
+echo Starting Expo EAS Android APK build v0.7.25...
 call npx.cmd eas-cli@latest build --platform android --profile preview --clear-cache
 if errorlevel 1 goto :error
 

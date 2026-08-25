@@ -1,0 +1,9 @@
+US AutoDarts League App v0.7.25
+
+- Adds Settings > Updates.
+- Automatically checks for a compatible OTA update shortly after the APK opens.
+- If an OTA update is found, downloads it and restarts the app to apply it.
+- Adds manual CHECK FOR UPDATE and INSTALL & RESTART controls.
+- Uses the league server as the self-hosted Expo Updates endpoint.
+- Changes Codemagic Android artifact from debug APK to release APK because expo-updates is designed for release behavior.
+- Native-library or Android-native changes still require a full APK build.
