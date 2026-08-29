@@ -1,0 +1,9 @@
+US AutoDarts League App v0.7.17 - GitHub / Codemagic Update
+
+This is an update to the existing GitHub project. Keep the repository and codemagic.yaml.
+
+Replace/update the root project files from this package, especially App.tsx, app.json and package.json, and keep the existing assets folder contents.
+The Tournament Champion asset remains assets/award-tournament-champion.png.
+
+Manager users now see Tournaments / Playoffs and Create Tournament inside Server Manager tools.
+Server v0.8.9 or later is required for those remote manager controls.

@@ -1,0 +1,6 @@
+GitHub update v0.7.22
+
+Upload the files from the small update ZIP to the ROOT of the existing usautodartsleague repository.
+Replace matching files when GitHub prompts.
+Do NOT replace codemagic.yaml.
+Commit the changes, then start the Codemagic Android build on branch main.

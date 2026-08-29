@@ -1,0 +1,7 @@
+US AutoDarts League v0.7.26
+
+Upload the CONTENTS of this folder to the root of the existing GitHub repository used by Codemagic, replacing the older v0.7.25 files.
+
+This version fixes multiple simultaneous manager-created tournaments in both Android and web clients.
+
+No native dependency changed. Runtime remains 0.7.25 for OTA compatibility.

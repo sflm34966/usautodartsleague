@@ -1,4 +1,4 @@
-US AutoDarts League v0.7.16 - Codemagic Debug APK Build
+US AutoDarts League v0.7.21 - Codemagic Debug APK Build
 
 This package is configured for a simple Codemagic DEBUG APK build.
 No Android keystore or Expo/EAS signing credentials are required.

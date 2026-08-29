@@ -1,0 +1,19 @@
+Multiple Tournament Client Update
+
+Server requirement: USADL Server Manager v0.9.25 or newer (v0.9.28 recommended).
+
+Android existing APK:
+1. Use this source folder on the Windows server PC.
+2. Start Server Manager.
+3. Run PUBLISH_OTA_UPDATE_WINDOWS.bat.
+4. Players can reopen the app or use Settings > Updates > Check for Update.
+
+Web app:
+1. npm.cmd install
+2. npx.cmd expo export --platform web --output-dir web-dist --clear
+3. Replace the currently hosted web build with web-dist.
+
+Expected behavior:
+- Tournament tab lists all server-reported manager-created tournaments, not just the first/current one.
+- Each tournament opens its own Matches / Bracket / Rules detail.
+- A refresh preserves the selected tournament by ID.

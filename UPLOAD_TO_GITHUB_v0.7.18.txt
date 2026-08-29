@@ -1,0 +1,12 @@
+US AutoDarts League App v0.7.18 - GitHub Update
+
+Upload the files from the v0.7.18 GitHub update ZIP to the ROOT of the existing GitHub repository where App.tsx is located.
+Replace matching files, commit the changes, then start a new Codemagic build from branch main.
+
+Do not replace or remove codemagic.yaml.
+
+Changed files:
+- App.tsx
+- app.json
+- package.json
+- CHANGELOG-v0.7.18.txt

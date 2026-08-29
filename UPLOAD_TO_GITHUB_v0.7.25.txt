@@ -1,0 +1,17 @@
+US AutoDarts League APK v0.7.25 - GitHub / Codemagic update
+
+This version adds the OTA updater itself, so this ONE update changes codemagic.yaml from a debug APK to a release APK.
+
+Upload/replace these items at the ROOT of the existing GitHub repository:
+- App.tsx
+- app.json
+- package.json
+- codemagic.yaml
+- PUBLISH_OTA_UPDATE_WINDOWS.bat
+- OTA_UPDATE_README.txt
+- publish-ota-update.js
+- CHANGELOG-v0.7.25.txt
+
+Then commit and run the normal Codemagic workflow.
+Codemagic will run expo prebuild and assemble an OTA-enabled release APK.
+After players install v0.7.25, compatible small fixes can be delivered without another APK.

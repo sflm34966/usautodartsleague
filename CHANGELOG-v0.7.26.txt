@@ -1,0 +1,12 @@
+US AutoDarts League Unified App v0.7.26
+
+MULTIPLE MANAGER-CREATED TOURNAMENTS
+- Player Tournament tab now reads the complete available_tournaments list returned by server v0.9.25+ instead of storing only one current tournament.
+- Android and web clients show every server-reported manager-created tournament, each as its own named link with start/status.
+- Opening a tournament keeps that tournament selected while data refreshes, so brackets, matches, rules, and result uploads remain tied to the correct tournament.
+- Manager tools now keep Create Tournament available while other tournaments are active, show a Manage Tournament selector, and send the selected tournament_id for Add/Drop corrections.
+- Official league playoff/tournament brackets remain separate. Manager-created tournament results still do not affect league/career statistics.
+
+OTA COMPATIBILITY
+- No native dependencies or permissions changed.
+- expo.runtimeVersion remains 0.7.25, so this JavaScript/UI/API-handling change can be delivered to existing v0.7.25-runtime APKs by OTA.

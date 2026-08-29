@@ -1,0 +1,15 @@
+US AutoDarts League Unified App v0.7.27
+
+Manager-created tournament controls:
+- Added Change Tournament Date and Change Start Time (Eastern) under the selected created tournament.
+- Added SAVE NEW DATE & TIME using the server manager-tournament reschedule endpoint.
+- Added DELETE TOURNAMENT in the Android manager tools using the server's existing delete endpoint.
+- Tournament deletion requires two confirmations.
+- Tournament date/time editing locks once tournament play has started, matching server behavior.
+
+Build/update workflow:
+- Android update is separated from the website update.
+- UPDATE_ANDROID_WINDOWS.bat installs dependencies, builds the Android OTA export, and publishes it to the running USADL Server Manager.
+- expo.runtimeVersion remains 0.7.25 for compatibility with the installed OTA-capable APK.
+
+No league rules, OCR logic, standings logic, or tournament-stat aggregation behavior changed.

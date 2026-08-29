@@ -1,0 +1,14 @@
+US AutoDarts League v0.7.28
+
+Use this folder as the current app source for GitHub/Codemagic.
+
+Important files changed for v0.7.28:
+- App.tsx
+- app.json
+- package.json
+- package-lock.json
+- CHANGELOG-v0.7.28.txt
+
+Build a NEW APK with Codemagic. This release changes the native app version to 0.7.28 / Android versionCode 98 so Android system App info updates correctly.
+
+expo.runtimeVersion intentionally remains 0.7.25 to preserve compatibility with the existing self-hosted OTA channel.

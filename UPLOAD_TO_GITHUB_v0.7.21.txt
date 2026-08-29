@@ -1,0 +1,12 @@
+US AutoDarts League App v0.7.21 - GitHub / Codemagic update
+
+Upload/replace these files in the ROOT of the existing usautodartsleague GitHub repository:
+- App.tsx
+- app.json
+- package.json
+- CHANGELOG-v0.7.21.txt
+
+Do NOT replace codemagic.yaml for this update.
+Commit the changes, then start a new Codemagic build from branch main.
+
+Requires USADL Server v0.9.3 for league-visible awards and verified 9-Dart badge cleanup.

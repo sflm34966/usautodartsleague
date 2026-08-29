@@ -1,0 +1,22 @@
+Manager-created tournament controls used by App v0.7.27
+
+GET    /api/admin/manager-tournament
+PUT    /api/admin/manager-tournament
+DELETE /api/admin/manager-tournament
+
+Reschedule PUT JSON:
+{
+  "id": <tournament id>,
+  "date": "YYYY-MM-DD",
+  "time": "HH:MM",
+  "client_now_utc": "ISO timestamp",
+  "client_now_eastern_date": "YYYY-MM-DD",
+  "client_now_eastern_time": "HH:MM"
+}
+
+Delete DELETE JSON:
+{
+  "id": <tournament id>
+}
+
+The Android app and website use the same server-authoritative endpoints.

@@ -1,0 +1,7 @@
+US AutoDarts League App v0.7.24
+
+- Password Change: allows the server operation up to 120 seconds instead of falsely aborting during slower legacy-account password migration.
+- Password Change: if the connection is aborted after the server already committed the password, the app verifies the new password by signing in and treats the operation as successful instead of showing a false failure.
+- Manager > Season Setup > Delete Season: uses a dedicated 120-second request because the server creates a safety backup before deleting.
+- Delete Season: if the response is lost/aborted, the app rechecks the server and reports success when the season was actually removed.
+- No OCR/screenshot analyzer changes.

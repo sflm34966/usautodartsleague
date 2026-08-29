@@ -1,0 +1,18 @@
+US AutoDarts League App v0.7.16 - GitHub / Codemagic Update
+
+You already have the repository and Codemagic application configured.
+
+1. Extract the v0.7.16 ZIP.
+2. Open the US_AutoDarts_League_Unified_v0.7.16 folder.
+3. On GitHub open sflm34966/usautodartsleague.
+4. Choose Add file > Upload files.
+5. Drag the CONTENTS of this folder to the GitHub upload page (not the outer folder and not the ZIP).
+6. Commit the changes to main.
+7. Return to Codemagic and refresh the application.
+8. Click Start new build / Start your build.
+9. Branch: main. Workflow: US AutoDarts League Android APK.
+10. Leave SSH/VNC off and start the build.
+
+The Codemagic workflow still builds an installable debug APK. No signing-key setup is required when the old APK is uninstalled before installing the new one.
+
+IMPORTANT: v0.7.16 expects the matching server endpoints documented in MANAGER_TOURNAMENT_SERVER_API_v0.7.16.txt. The APK can be built now while the server update is being prepared.

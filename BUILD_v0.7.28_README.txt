@@ -1,0 +1,22 @@
+US AutoDarts League App v0.7.28
+
+This is the APP source for the GitHub -> Codemagic APK workflow.
+
+v0.7.28 changes:
+- Regular match evidence uploads no longer abort after 60 seconds.
+- App waits for the server response; transport errors no longer falsely claim the server did not receive the image.
+- Settings now includes App Info.
+- App Info reads the installed version from app.json.
+- Native Android app version is 0.7.28 and versionCode is 98.
+- Settings footer displays the version from app.json.
+- Updates screen distinguishes Installed version from OTA runtime.
+
+OTA compatibility:
+- expo.runtimeVersion intentionally remains 0.7.25 so the existing self-hosted OTA update channel stays compatible.
+- This v0.7.28 release itself should be built as a NEW APK in Codemagic so Android system App info updates to 0.7.28.
+
+No OCR / picture-analysis code was changed.
+No league rules, standings, or tournament-stat aggregation logic was changed.
+
+Validation performed:
+- Expo Android export completed successfully using the uploaded v0.7.27 dependency set.

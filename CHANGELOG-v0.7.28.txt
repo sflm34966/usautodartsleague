@@ -1,0 +1,21 @@
+US AutoDarts League Unified App v0.7.28
+
+App upload reliability:
+- Removed the app-side 60-second abort from regular match evidence uploads.
+- The app now waits for the server response instead of declaring failure after 60 seconds.
+- HTTP/server rejections are shown as Server rejected upload.
+- Transport errors no longer claim the server definitely did not receive the file; the player is told to check the match before retrying.
+
+App version / App Info:
+- Added Settings > App Info.
+- App Info reads the installed version from app.json instead of a hard-coded label.
+- Native app version is 0.7.28 with Android versionCode 98, so Android system App info will show 0.7.28 after this APK is installed.
+- Settings footer now reads the version from app.json.
+- Updates screen distinguishes Installed version from OTA runtime.
+- expo.runtimeVersion remains 0.7.25 so the existing self-hosted OTA update channel stays compatible.
+
+Build workflow:
+- This is a new APK build through GitHub -> Codemagic, not an OTA-only release.
+
+No OCR/picture-analysis code was changed.
+No league rules, standings, or tournament-stat aggregation logic was changed.

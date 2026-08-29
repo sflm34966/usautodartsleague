@@ -2,12 +2,12 @@
   "expo": {
     "name": "US AutoDarts League",
     "slug": "us-autodarts-league",
-    "version": "0.7.25",
+    "version": "0.7.28",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
     "android": {
       "package": "com.usautodarts.league",
-      "versionCode": 95,
+      "versionCode": 98,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#06101F"
