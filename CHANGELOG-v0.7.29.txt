@@ -1,0 +1,7 @@
+US AutoDarts League App v0.7.29
+
+- Adds a staged evidence tray for regular and manager-created tournament matches.
+- Players can add screenshots/photos repeatedly, review the queue, remove mistakes, clear the queue, then press Upload All once.
+- Upload All sends evidence in server-sized batches of up to 10 files while keeping the remaining queue intact if a later batch fails.
+- Matches can receive additional evidence later; Server v0.9.69 combines all active, non-rejected evidence and reuses cached OCR results.
+- No OCR logic moved into the app; the server remains authoritative for analysis and merging.

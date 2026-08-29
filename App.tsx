@@ -457,7 +457,7 @@ const[playerName,setPlayerName]=useState("");
 const[screenName,setScreenName]=useState("");
 const[timeZone,setTimeZone]=useState(()=>{try{return Intl.DateTimeFormat().resolvedOptions().timeZone||"America/New_York"}catch{return"America/New_York"}});
 const[profileImage,setProfileImage]=useState<string|null>(null);
-const[matchScreenshots,setMatchScreenshots]=useState<Record<string,string[]>>({});
+const[matchScreenshots,setMatchScreenshots]=useState<Record<string,any[]>>({});
 const[matchUploadWorkingId,setMatchUploadWorkingId]=useState<string>("");
 const[currentPlayer,setCurrentPlayer]=useState<any>(null);
 const[authReady,setAuthReady]=useState(false);
@@ -870,60 +870,113 @@ const pickProfileImage=async()=>{
   if(!result.canceled&&result.assets?.[0]?.uri)setProfileImage(result.assets[0].uri);
 };
 
+const evidenceAssetKey=(a:any)=>String(a?.assetId||a?.fileName||a?.filename||a?.uri||"");
+const addQueuedEvidence=(queueKey:string,assets:any[])=>{
+  setMatchScreenshots(prev=>{
+    const current=Array.isArray(prev[queueKey])?prev[queueKey]:[];
+    const seen=new Set(current.map(evidenceAssetKey));
+    const added=assets.filter((a:any)=>{const k=evidenceAssetKey(a);if(!k||seen.has(k))return false;seen.add(k);return true;});
+    return {...prev,[queueKey]:[...current,...added]};
+  });
+};
+const removeQueuedEvidence=(queueKey:string,index:number)=>setMatchScreenshots(prev=>({...prev,[queueKey]:(prev[queueKey]||[]).filter((_:any,i:number)=>i!==index)}));
+const clearQueuedEvidence=(queueKey:string)=>setMatchScreenshots(prev=>({...prev,[queueKey]:[]}));
+
 const pickMatchScreenshots=async(matchId:string)=>{
   if(matchUploadWorkingId)return;
   const permission=await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if(!permission.granted){
-    Alert.alert("Permission needed","Photo access is needed to upload AutoDarts match screenshots.");
-    return;
-  }
-  const result=await ImagePicker.launchImageLibraryAsync({
-    mediaTypes:["images"],
-    allowsMultipleSelection:true,
-    selectionLimit:10,
-    quality:1
-  });
-  if(!result.canceled&&result.assets?.length){
-    const uris=result.assets.map((a:any)=>a.uri);
-    setMatchScreenshots(prev=>({...prev,[matchId]:uris}));
-    setMatchUploadWorkingId(matchId);
-    try{
-      const receipt=await uploadMatchEvidence(matchId,result.assets);
-      const received=Number(receipt?.received||result.assets.length);
-      await refreshServerData();
-      Alert.alert("Server received evidence",`${received} AutoDarts screenshot${received===1?"":"s"} stored on the league server for Match #${matchId}.`);
-    }catch(e:any){
-      const message=String(e?.message||e||"Server request failed.");
-      if(Number(e?.status||0)>0)Alert.alert("Server rejected upload",message);
-      else Alert.alert("Upload connection error",`The app did not receive a successful response from the server. Check the match before retrying because the server may still have received the image. ${message}`);
-    }finally{setMatchUploadWorkingId("");}
-  }
+  if(!permission.granted){Alert.alert("Permission needed","Photo access is needed to choose AutoDarts match screenshots or photos.");return;}
+  const result=await ImagePicker.launchImageLibraryAsync({mediaTypes:["images"],allowsMultipleSelection:true,selectionLimit:10,quality:1});
+  if(result.canceled||!result.assets?.length)return;
+  addQueuedEvidence(matchId,result.assets);
 };
+
+const uploadQueuedMatchEvidence=async(matchId:string)=>{
+  if(matchUploadWorkingId)return;
+  let remaining=[...(matchScreenshots[matchId]||[])];
+  if(!remaining.length){Alert.alert("Nothing queued","Add at least one screenshot or photo first.");return;}
+  const originalCount=remaining.length;
+  let uploaded=0;
+  setMatchUploadWorkingId(matchId);
+  try{
+    while(remaining.length){
+      const batch=remaining.slice(0,10);
+      const receipt=await uploadMatchEvidence(matchId,batch);
+      const received=Math.max(0,Number(receipt?.received||batch.length));
+      uploaded+=received;
+      remaining=remaining.slice(batch.length);
+      setMatchScreenshots(prev=>({...prev,[matchId]:remaining}));
+    }
+    await refreshServerData();
+    Alert.alert("Evidence uploaded",`${uploaded||originalCount} file${(uploaded||originalCount)===1?"":"s"} stored on the league server for Match #${matchId}. The server will combine all active, non-rejected evidence.`);
+  }catch(e:any){
+    setMatchScreenshots(prev=>({...prev,[matchId]:remaining}));
+    const message=String(e?.message||e||"Server request failed.");
+    Alert.alert(uploaded?"Upload partly completed":"Upload failed",uploaded?`${uploaded} file${uploaded===1?"":"s"} reached the server. ${remaining.length} remain queued and can be retried. ${message}`:message);
+  }finally{setMatchUploadWorkingId("");}
+};
+
+async function uploadManagerTournamentEvidence(matchId:string,assets:any[]){
+  const token=runtimeAuthToken||await storage.getItemAsync("league_session");
+  if(!token)throw new Error("You are not signed in.");
+  const form:any=new FormData();
+  for(let i=0;i<assets.length;i++){
+    const a:any=assets[i],uri=String(a?.uri||""),original=String(a?.fileName||a?.filename||`tournament-${matchId}-${i+1}.png`);
+    let type=String(a?.mimeType||a?.type||"");
+    if(!type||!type.includes("/")){const lower=original.toLowerCase();type=lower.endsWith(".jpg")||lower.endsWith(".jpeg")?"image/jpeg":lower.endsWith(".webp")?"image/webp":"image/png";}
+    if(Platform.OS==="web"){const blob:any=await(await fetch(uri)).blob();form.append("files",blob,original);}else form.append("files",{uri,name:original,type} as any);
+  }
+  const response=await fetch(`${API_BASE_URL}/api/manager-tournament/matches/${encodeURIComponent(matchId)}/evidence`,{method:"POST",headers:{Accept:"application/json",Authorization:`Bearer ${token}`},body:form});
+  let data:any=null;try{data=await response.json();}catch{}
+  if(!response.ok)throw new Error(data?.message||data?.error||`Server returned HTTP ${response.status}`);
+  return data;
+}
 
 const pickManagerTournamentScreenshots=async(matchId:string)=>{
   if(matchUploadWorkingId)return;
   const permission=await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if(!permission.granted){Alert.alert("Permission needed","Photo access is needed to upload AutoDarts tournament screenshots.");return;}
+  if(!permission.granted){Alert.alert("Permission needed","Photo access is needed to choose AutoDarts tournament screenshots or photos.");return;}
   const result=await ImagePicker.launchImageLibraryAsync({mediaTypes:["images"],allowsMultipleSelection:true,selectionLimit:10,quality:1});
   if(result.canceled||!result.assets?.length)return;
-  setMatchUploadWorkingId(`t-${matchId}`);
+  addQueuedEvidence(`t-${matchId}`,result.assets);
+};
+
+const uploadQueuedManagerTournamentEvidence=async(matchId:string)=>{
+  const queueKey=`t-${matchId}`;
+  if(matchUploadWorkingId)return;
+  let remaining=[...(matchScreenshots[queueKey]||[])];
+  if(!remaining.length){Alert.alert("Nothing queued","Add at least one screenshot or photo first.");return;}
+  const originalCount=remaining.length;
+  let uploaded=0;
+  setMatchUploadWorkingId(queueKey);
   try{
-    const token=runtimeAuthToken||await storage.getItemAsync("league_session");
-    if(!token)throw new Error("You are not signed in.");
-    const form:any=new FormData();
-    for(let i=0;i<result.assets.length;i++){
-      const a:any=result.assets[i];const uri=String(a?.uri||"");const original=String(a?.fileName||a?.filename||`tournament-${matchId}-${i+1}.png`);
-      let type=String(a?.mimeType||a?.type||"");if(!type||!type.includes("/")){const lower=original.toLowerCase();type=lower.endsWith(".jpg")||lower.endsWith(".jpeg")?"image/jpeg":lower.endsWith(".webp")?"image/webp":"image/png";}
-      if(Platform.OS==="web"){const blob:any=await(await fetch(uri)).blob();form.append("files",blob,original);}else form.append("files",{uri,name:original,type} as any);
+    while(remaining.length){
+      const batch=remaining.slice(0,10);
+      const data=await uploadManagerTournamentEvidence(matchId,batch);
+      const received=Math.max(0,Number(data?.received||batch.length));
+      uploaded+=received;
+      remaining=remaining.slice(batch.length);
+      setMatchScreenshots(prev=>({...prev,[queueKey]:remaining}));
     }
-    const response=await fetch(`${API_BASE_URL}/api/manager-tournament/matches/${encodeURIComponent(matchId)}/evidence`,{method:"POST",headers:{Accept:"application/json",Authorization:`Bearer ${token}`},body:form});
-    let data:any=null;try{data=await response.json();}catch{}
-    if(!response.ok)throw new Error(data?.message||data?.error||`Server returned HTTP ${response.status}`);
     await refreshManagerTournament();
-    const received=Number(data?.received||result.assets.length);
-    Alert.alert("Server received result",`${received} AutoDarts screenshot${received===1?"":"s"} uploaded for this tournament match.`);
-  }catch(e:any){Alert.alert("Tournament result was NOT uploaded",String(e?.message||e||"Upload failed."));}
-  finally{setMatchUploadWorkingId("");}
+    Alert.alert("Tournament evidence uploaded",`${uploaded||originalCount} file${(uploaded||originalCount)===1?"":"s"} uploaded. The server will combine all active, non-rejected evidence for this match.`);
+  }catch(e:any){
+    setMatchScreenshots(prev=>({...prev,[queueKey]:remaining}));
+    const message=String(e?.message||e||"Upload failed.");
+    Alert.alert(uploaded?"Upload partly completed":"Tournament upload failed",uploaded?`${uploaded} file${uploaded===1?"":"s"} reached the server. ${remaining.length} remain queued and can be retried. ${message}`:message);
+  }finally{setMatchUploadWorkingId("");}
+};
+
+const queuedEvidenceTray=(queueKey:string,onAdd:()=>void,onUpload:()=>void)=>{
+  const queued=matchScreenshots[queueKey]||[];
+  if(!queued.length)return null;
+  const working=matchUploadWorkingId===queueKey;
+  return <View style={s.evidenceTray}>
+    <View style={s.evidenceTrayHeader}><Text style={s.evidenceTrayTitle}>READY TO UPLOAD • {queued.length}</Text><Pressable disabled={working} onPress={()=>clearQueuedEvidence(queueKey)}><Text style={s.evidenceClear}>CLEAR ALL</Text></Pressable></View>
+    <Text style={s.evidenceTrayHint}>Add every screenshot/photo you need, remove any wrong ones, then tap Upload All once.</Text>
+    {queued.map((a:any,i:number)=><View key={`${evidenceAssetKey(a)}-${i}`} style={s.evidenceQueueRow}><Image source={{uri:String(a?.uri||"")}} style={s.evidenceThumb}/><Text numberOfLines={1} style={s.evidenceQueueName}>{String(a?.fileName||a?.filename||`Image ${i+1}`)}</Text><Pressable disabled={working} onPress={()=>removeQueuedEvidence(queueKey,i)} style={s.evidenceRemove}><Text style={s.evidenceRemoveText}>REMOVE</Text></Pressable></View>)}
+    <View style={s.evidenceTrayActions}><Pressable disabled={working} style={[s.evidenceAddMore,working&&{opacity:.45}]} onPress={onAdd}><Text style={s.evidenceActionText}>+ ADD MORE</Text></Pressable><Pressable disabled={working} style={[s.evidenceUploadAll,working&&{opacity:.45}]} onPress={onUpload}><Text style={s.evidenceActionText}>{working?"UPLOADING…":"UPLOAD ALL"}</Text></Pressable></View>
+  </View>;
 };
 const respondToAnnouncement=async(choice:string)=>{
   if(!announcementPopup||announcementBusy)return;
@@ -982,10 +1035,10 @@ body=<ScrollView showsVerticalScrollIndicator={false}>
 <ChoiceDropdown label="Season" value={selectedSeasonId} options={seasonOptions} onChange={setSelectedSeasonId} placeholder="Current Season"/>
 <View style={s.managerNotice}><Text style={s.managerNoticeTitle}>RESULT SCREENSHOT EVIDENCE</Text><Text style={s.managerNoticeText}>Use the original AutoDarts result screenshot captured on the PC running AutoDarts. When you select it here, the app uploads the image directly to the league server and confirms receipt.</Text></View>
 <Text style={s.statsSection}>UPCOMING — MY MATCHES</Text>
-{upcomingMatches.length?upcomingMatches.map((m:any)=>{const key=String(m.id);const opponent=neutralOpponent(m,currentPlayer?.id);const opponentId=Number(m.player1_id)===me?Number(m.player2_id||0):Number(m.player1_id||0);return <View key={key} style={s.matchCard}><View style={s.matchCardRow}><View style={s.matchCardInfo}><Text style={s.matchDivision}>{String(m.division_name||currentPlayer?.division_name||"LEAGUE MATCH").toUpperCase()} • WEEK {m.week_no||"—"}</Text><View style={s.matchPlayersLeft}><Text style={s.matchSelfName}>{currentPlayer?.display_name||currentPlayer?.username||"YOU"}</Text><Text style={s.vsLarge}> VS </Text><PlayerLink name={String(opponent||"Opponent")} playerId={opponentId} textStyle={s.matchSelfName}/></View><Text style={s.matchDateLeft}>{localMatchLabel(m,timeZone)}</Text><Text style={s.matchMetaLeft}>{m.stage&&m.stage!=="regular_season"?String(m.round_label||m.stage):"Regular Season"} • Best of {m.best_of||5} • Server scheduled</Text>{Number(m.evidence_count||0)>0?<Text style={s.uploadReady}>✓ SERVER RECEIVED {Number(m.evidence_count||0)} screenshot{Number(m.evidence_count||0)===1?"":"s"}</Text>:matchScreenshots[key]?.length?<Text style={s.uploadReady}>Selected locally — waiting for server receipt</Text>:null}</View><Pressable style={[s.uploadResultsButton,matchUploadWorkingId===key&&{opacity:.55}]} disabled={!!matchUploadWorkingId} onPress={()=>pickMatchScreenshots(key)}><Text style={s.uploadResultsIcon}>{matchUploadWorkingId===key?"…":"⬆"}</Text><Text style={s.uploadResultsText}>{matchUploadWorkingId===key?"UPLOADING":"UPLOAD"}</Text><Text style={s.uploadResultsText}>EVIDENCE</Text></Pressable></View></View>}):<View style={s.emptyStateCard}><Text style={s.emptyStateTitle}>NO UPCOMING MATCHES</Text><Text style={s.emptyStateText}>Server-generated matches for this season will appear here automatically.</Text></View>}
+{upcomingMatches.length?upcomingMatches.map((m:any)=>{const key=String(m.id);const opponent=neutralOpponent(m,currentPlayer?.id);const opponentId=Number(m.player1_id)===me?Number(m.player2_id||0):Number(m.player1_id||0);const queued=matchScreenshots[key]?.length||0;return <View key={key} style={s.matchCard}><View style={s.matchCardRow}><View style={s.matchCardInfo}><Text style={s.matchDivision}>{String(m.division_name||currentPlayer?.division_name||"LEAGUE MATCH").toUpperCase()} • WEEK {m.week_no||"—"}</Text><View style={s.matchPlayersLeft}><Text style={s.matchSelfName}>{currentPlayer?.display_name||currentPlayer?.username||"YOU"}</Text><Text style={s.vsLarge}> VS </Text><PlayerLink name={String(opponent||"Opponent")} playerId={opponentId} textStyle={s.matchSelfName}/></View><Text style={s.matchDateLeft}>{localMatchLabel(m,timeZone)}</Text><Text style={s.matchMetaLeft}>{m.stage&&m.stage!=="regular_season"?String(m.round_label||m.stage):"Regular Season"} • Best of {m.best_of||5} • Server scheduled</Text>{Number(m.evidence_count||0)>0?<Text style={s.uploadReady}>✓ SERVER HAS {Number(m.evidence_count||0)} evidence file{Number(m.evidence_count||0)===1?"":"s"}</Text>:null}{queued?<Text style={s.uploadQueued}>LOCAL QUEUE: {queued} READY</Text>:null}</View><Pressable style={[s.uploadResultsButton,!!matchUploadWorkingId&&{opacity:.55}]} disabled={!!matchUploadWorkingId} onPress={()=>pickMatchScreenshots(key)}><Text style={s.uploadResultsIcon}>＋</Text><Text style={s.uploadResultsText}>{queued?"ADD MORE":"ADD"}</Text><Text style={s.uploadResultsText}>EVIDENCE</Text></Pressable></View>{queuedEvidenceTray(key,()=>pickMatchScreenshots(key),()=>uploadQueuedMatchEvidence(key))}</View>}):<View style={s.emptyStateCard}><Text style={s.emptyStateTitle}>NO UPCOMING MATCHES</Text><Text style={s.emptyStateText}>Server-generated matches for this season will appear here automatically.</Text></View>}
 <Text style={s.statsSection}>COMPLETED / HISTORY</Text>
 <ChoiceDropdown label="Past Matches" value={historyPlayerFilter} options={historyOptions} onChange={setHistoryPlayerFilter}/>
-{historyRows.length?historyRows.map((m:any)=>{const p1id=Number(m.player1_id||0),p2id=Number(m.player2_id||0),p1=String(m.player1_name||publicPlayerNameById(p1id)||"Player 1"),p2=String(m.player2_name||publicPlayerNameById(p2id)||"Player 2");const leagueView=historyPlayerFilter==="league";const perspectiveId=historyTargetPlayerId;const perspectiveP1=p1id===perspectiveId;const subjectId=perspectiveP1?p1id:p2id;const opponentId=perspectiveP1?p2id:p1id;const subjectName=perspectiveP1?p1:p2;const opponentName=perspectiveP1?p2:p1;const myScore=perspectiveP1?m.player1_legs:m.player2_legs;const oppScore=perspectiveP1?m.player2_legs:m.player1_legs;const result=leagueView?"":matchResultForPlayer(m,perspectiveId);const canUpload=p1id===me||p2id===me;return <View key={String(m.id)} style={s.matchCard}><View style={s.matchCardRow}><View style={s.matchCardInfo}><Text style={s.matchDivision}>{String(m.division_name||"LEAGUE MATCH").toUpperCase()} • WEEK {m.week_no||"—"}</Text>{leagueView?<View style={s.matchPlayersLeft}><PlayerLink name={p1} playerId={p1id} textStyle={s.matchSelfName}/><Text style={s.vsLarge}> {m.player1_legs??"–"} - {m.player2_legs??"–"} </Text><PlayerLink name={p2} playerId={p2id} textStyle={s.matchSelfName}/></View>:<View style={s.matchPlayersLeft}><Text style={[s.matchResultLetter,result==="L"&&{color:"#ff5d67"}]}>{result||"•"}</Text><PlayerLink name={subjectName} playerId={subjectId} textStyle={s.matchSelfName}/><Text style={s.vsLarge}> {myScore??"–"} - {oppScore??"–"} </Text><PlayerLink name={opponentName} playerId={opponentId} textStyle={s.matchSelfName}/></View>}<Text style={s.matchDateLeft}>{localMatchLabel(m,timeZone)}</Text><Text style={s.matchMetaLeft}>Completed • Best of {m.best_of||5} • Stored on league server • Evidence {Number(m.evidence_count||0)}</Text>{Number(m.evidence_count||0)>0?<Text style={s.uploadReady}>✓ SERVER RECEIVED {Number(m.evidence_count||0)} screenshot{Number(m.evidence_count||0)===1?"":"s"}</Text>:null}</View>{canUpload?<Pressable style={[s.uploadResultsButton,matchUploadWorkingId===String(m.id)&&{opacity:.55}]} disabled={!!matchUploadWorkingId} onPress={()=>pickMatchScreenshots(String(m.id))}><Text style={s.uploadResultsIcon}>{matchUploadWorkingId===String(m.id)?"…":"⬆"}</Text><Text style={s.uploadResultsText}>{matchUploadWorkingId===String(m.id)?"UPLOADING":"ADD"}</Text><Text style={s.uploadResultsText}>EVIDENCE</Text></Pressable>:null}</View></View>}):<View style={s.emptyStateCard}><Text style={s.emptyStateTitle}>NO COMPLETED MATCHES</Text><Text style={s.emptyStateText}>{historyPlayerFilter==="league"?"No completed league matches are stored for this season.":"No completed matches are stored for this selection and season."}</Text></View>}
+{historyRows.length?historyRows.map((m:any)=>{const p1id=Number(m.player1_id||0),p2id=Number(m.player2_id||0),p1=String(m.player1_name||publicPlayerNameById(p1id)||"Player 1"),p2=String(m.player2_name||publicPlayerNameById(p2id)||"Player 2");const leagueView=historyPlayerFilter==="league";const perspectiveId=historyTargetPlayerId;const perspectiveP1=p1id===perspectiveId;const subjectId=perspectiveP1?p1id:p2id;const opponentId=perspectiveP1?p2id:p1id;const subjectName=perspectiveP1?p1:p2;const opponentName=perspectiveP1?p2:p1;const myScore=perspectiveP1?m.player1_legs:m.player2_legs;const oppScore=perspectiveP1?m.player2_legs:m.player1_legs;const result=leagueView?"":matchResultForPlayer(m,perspectiveId);const canUpload=p1id===me||p2id===me;const queueKey=String(m.id);const queued=matchScreenshots[queueKey]?.length||0;return <View key={String(m.id)} style={s.matchCard}><View style={s.matchCardRow}><View style={s.matchCardInfo}><Text style={s.matchDivision}>{String(m.division_name||"LEAGUE MATCH").toUpperCase()} • WEEK {m.week_no||"—"}</Text>{leagueView?<View style={s.matchPlayersLeft}><PlayerLink name={p1} playerId={p1id} textStyle={s.matchSelfName}/><Text style={s.vsLarge}> {m.player1_legs??"–"} - {m.player2_legs??"–"} </Text><PlayerLink name={p2} playerId={p2id} textStyle={s.matchSelfName}/></View>:<View style={s.matchPlayersLeft}><Text style={[s.matchResultLetter,result==="L"&&{color:"#ff5d67"}]}>{result||"•"}</Text><PlayerLink name={subjectName} playerId={subjectId} textStyle={s.matchSelfName}/><Text style={s.vsLarge}> {myScore??"–"} - {oppScore??"–"} </Text><PlayerLink name={opponentName} playerId={opponentId} textStyle={s.matchSelfName}/></View>}<Text style={s.matchDateLeft}>{localMatchLabel(m,timeZone)}</Text><Text style={s.matchMetaLeft}>Completed • Best of {m.best_of||5} • Stored on league server • Evidence {Number(m.evidence_count||0)}</Text>{Number(m.evidence_count||0)>0?<Text style={s.uploadReady}>✓ SERVER HAS {Number(m.evidence_count||0)} evidence file{Number(m.evidence_count||0)===1?"":"s"}</Text>:null}{queued?<Text style={s.uploadQueued}>LOCAL QUEUE: {queued} READY</Text>:null}</View>{canUpload?<Pressable style={[s.uploadResultsButton,!!matchUploadWorkingId&&{opacity:.55}]} disabled={!!matchUploadWorkingId} onPress={()=>pickMatchScreenshots(queueKey)}><Text style={s.uploadResultsIcon}>＋</Text><Text style={s.uploadResultsText}>{queued?"ADD MORE":"ADD"}</Text><Text style={s.uploadResultsText}>EVIDENCE</Text></Pressable>:null}</View>{canUpload?queuedEvidenceTray(queueKey,()=>pickMatchScreenshots(queueKey),()=>uploadQueuedMatchEvidence(queueKey)):null}</View>}):<View style={s.emptyStateCard}><Text style={s.emptyStateTitle}>NO COMPLETED MATCHES</Text><Text style={s.emptyStateText}>{historyPlayerFilter==="league"?"No completed league matches are stored for this season.":"No completed matches are stored for this selection and season."}</Text></View>}
 </ScrollView>;
 }
 else if(tab==="Tournament"){
@@ -996,7 +1049,7 @@ const roundOrder=(m:any)=>{const r=String(m?.round_label||m?.round_name||m?.roun
 body=<ScrollView showsVerticalScrollIndicator={false}><Text style={s.title}>Tournament Brackets</Text><ChoiceDropdown label="Season" value={selectedSeasonId} options={seasonOptions} onChange={setSelectedSeasonId} placeholder="Current Season"/>{!tournamentEndpointReady?<View style={s.managerNotice}><Text style={s.managerNoticeTitle}>TOURNAMENT SERVER LINK PENDING</Text><Text style={s.managerNoticeText}>This section is reserved for the official league tournament and division playoff system. It remains completely separate from manager-created tournaments.</Text></View>:<View style={s.managerNotice}><Text style={s.managerNoticeTitle}>OFFICIAL LEAGUE TOURNAMENTS</Text><Text style={s.managerNoticeText}>Official tournament and division-playoff brackets are loaded from the league server and are not changed by manager-created tournaments.</Text></View>}{Object.keys(groups).length?Object.entries(groups).map(([division,rows]:any)=><View key={division}><Text style={s.statsSection}>{String(division).toUpperCase()}</Text>{[...rows].sort((a:any,b:any)=>roundOrder(a)-roundOrder(b)||String(a?.scheduled_at||"").localeCompare(String(b?.scheduled_at||""))).map((m:any)=>{const done=isCompletedMatch(m);const p1=String(m?.player1_name||m?.player1||"TBD");const p2=String(m?.player2_name||m?.player2||"TBD");const score=done?`${m?.player1_legs??"–"} - ${m?.player2_legs??"–"}`:"VS";return <View key={String(m?.id||`${division}-${tournamentRoundLabel(m)}-${p1}-${p2}`)} style={s.matchCard}><View style={s.matchCardInfo}><Text style={s.matchDivision}>{tournamentRoundLabel(m).toUpperCase()}</Text><View style={s.matchPlayersLeft}><PlayerLink name={p1} playerId={Number(m?.player1_id||0)} textStyle={s.matchSelfName}/><Text style={s.vsLarge}> {score} </Text><PlayerLink name={p2} playerId={Number(m?.player2_id||0)} textStyle={s.matchSelfName}/></View><Text style={s.matchDateLeft}>{localMatchLabel(m,timeZone)}</Text><Text style={s.matchMetaLeft}>Best of {m?.best_of||5} • {done?"Completed":"Scheduled"} • Official server bracket</Text></View></View>})}</View>):<View style={s.emptyStateCard}><Text style={s.emptyStateTitle}>NO OFFICIAL TOURNAMENT BRACKET YET</Text><Text style={s.emptyStateText}>Official division playoffs or league tournament brackets will appear here automatically.</Text></View>}{managerTournaments.length?<View style={s.managerTournamentLinkSection}><Text style={s.statsSection}>MANAGER-CREATED TOURNAMENTS</Text>{managerTournaments.map((mt:any)=><Pressable key={String(mt?.id||mt?.name)} style={s.managerTournamentLink} onPress={()=>{setManagerTournament(mt);setManagerTournamentTab("Matches");setTab("ManagerTournament")}}><View style={s.managerTournamentLinkIcon}><Text style={s.managerTournamentLinkIconText}>🏅</Text></View><View style={{flex:1}}><Text style={s.managerTournamentLinkName}>{String(mt?.name||"Tournament")}</Text><Text style={s.managerTournamentLinkMeta}>{String(mt?.start_label||mt?.scheduled_label||mt?.start_at||"")} • {String(mt?.status||"scheduled").replace(/_/g," ").toUpperCase()} • Single Elimination</Text></View><Text style={s.settingsArrow}>›</Text></Pressable>)}</View>:null}</ScrollView>;}
 else if(tab==="ManagerTournament"&&managerTournament){
 const mt:any=managerTournament||{};const matches=Array.isArray(mt.matches)?mt.matches:[];const bracketMatches=Array.isArray(mt.bracket?.matches)?mt.bracket.matches:Array.isArray(mt.bracket)?mt.bracket:matches;const me=Number(currentPlayer?.id||0);const rounds:Record<string,any[]>={};for(const m of bracketMatches){const r=String(m?.round_label||m?.round_name||m?.round||"Round 1");(rounds[r]||(rounds[r]=[])).push(m);}const ruleRows=Array.isArray(mt.rules)&&mt.rules.length?mt.rules:["Single Elimination","Best of 5 Legs","No Draws","Current league match rules apply","Tournament results do not affect league statistics","Upload result evidence the same way as regular-season matches"];
-body=<ScrollView showsVerticalScrollIndicator={false}><View style={s.tournamentDetailHeader}><Pressable onPress={()=>setTab("Tournament")} hitSlop={10}><Text style={s.tournamentBack}>‹</Text></Pressable><View style={{flex:1}}><Text style={s.tournamentDetailTitle}>{String(mt.name||"Tournament")}</Text><Text style={s.tournamentDetailMeta}>{String(mt.start_label||mt.scheduled_label||mt.start_at||"")} • SINGLE ELIMINATION</Text></View></View><View style={s.tournamentTabs}>{["Matches","Bracket","Rules"].map(x=><Pressable key={x} style={[s.tournamentTabButton,managerTournamentTab===x&&s.tournamentTabButtonActive]} onPress={()=>setManagerTournamentTab(x)}><Text style={[s.tournamentTabText,managerTournamentTab===x&&s.tournamentTabTextActive]}>{x.toUpperCase()}</Text></Pressable>)}</View>{managerTournamentTab==="Matches"?<View><Text style={s.statsSection}>UPCOMING / ACTIVE MATCHES</Text>{matches.length?matches.map((m:any)=>{const p1=String(m?.player1_name||m?.player1||"TBD"),p2=String(m?.player2_name||m?.player2||"TBD");const mine=Number(m?.player1_id||0)===me||Number(m?.player2_id||0)===me;const done=isCompletedMatch(m);const key=String(m?.id||`${p1}-${p2}`);return <View key={key} style={s.matchCard}><View style={s.matchCardRow}><View style={s.matchCardInfo}><Text style={s.matchDivision}>{String(m?.round_label||m?.round_name||"TOURNAMENT MATCH").toUpperCase()}</Text><View style={s.matchPlayersLeft}><PlayerLink name={p1} playerId={Number(m?.player1_id||0)} textStyle={s.matchSelfName}/><Text style={s.vsLarge}> {done?`${m?.player1_legs??"–"} - ${m?.player2_legs??"–"}`:"VS"} </Text><PlayerLink name={p2} playerId={Number(m?.player2_id||0)} textStyle={s.matchSelfName}/></View><Text style={s.matchDateLeft}>{String(m?.scheduled_label||m?.scheduled_at||mt?.start_label||mt?.start_at||"")}</Text><Text style={s.matchMetaLeft}>Best of {m?.best_of||mt?.best_of||5} • {done?"Completed":"Single elimination"} • Does not affect league stats</Text></View>{mine&&!done?<Pressable style={[s.uploadResultsButton,matchUploadWorkingId===`t-${key}`&&{opacity:.55}]} disabled={!!matchUploadWorkingId} onPress={()=>pickManagerTournamentScreenshots(key)}><Text style={s.uploadResultsIcon}>{matchUploadWorkingId===`t-${key}`?"…":"⬆"}</Text><Text style={s.uploadResultsText}>{matchUploadWorkingId===`t-${key}`?"UPLOADING":"UPLOAD"}</Text><Text style={s.uploadResultsText}>RESULT</Text></Pressable>:null}</View></View>}):<View style={s.emptyStateCard}><Text style={s.emptyStateTitle}>BRACKET NOT GENERATED YET</Text><Text style={s.emptyStateText}>The server will create the bracket after signup closes 10 minutes before the tournament starts.</Text></View>}</View>:managerTournamentTab==="Bracket"?<View><Text style={s.statsSection}>LIVE BRACKET</Text>{Object.keys(rounds).length?<RNScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.bracketScroll}>{Object.entries(rounds).map(([round,rows]:any)=><View key={round} style={s.bracketColumn}><Text style={s.bracketRoundTitle}>{String(round).toUpperCase()}</Text>{rows.map((m:any,i:number)=><View key={String(m?.id||i)} style={s.bracketMatch}><View style={{flexDirection:"row",alignItems:"center"}}><PlayerLink name={String(m?.player1_name||m?.player1||"TBD")} playerId={Number(m?.player1_id||0)} textStyle={s.bracketPlayer}/>{isCompletedMatch(m)?<Text style={s.bracketPlayer}> {String(m?.player1_legs??"")}</Text>:null}</View><View style={s.bracketDivider}/><View style={{flexDirection:"row",alignItems:"center"}}><PlayerLink name={String(m?.player2_name||m?.player2||"TBD")} playerId={Number(m?.player2_id||0)} textStyle={s.bracketPlayer}/>{isCompletedMatch(m)?<Text style={s.bracketPlayer}> {String(m?.player2_legs??"")}</Text>:null}</View></View>)}</View>)}</RNScrollView>:<View style={s.emptyStateCard}><Text style={s.emptyStateTitle}>BRACKET NOT GENERATED YET</Text><Text style={s.emptyStateText}>Confirmed entrants will be placed into the single-elimination bracket automatically when signup closes.</Text></View>}</View>:<View><Text style={s.statsSection}>TOURNAMENT RULES</Text><View style={s.tournamentRulesCard}>{ruleRows.map((r:any,i:number)=><View key={i} style={s.tournamentRuleRow}><Text style={s.tournamentRuleCheck}>✓</Text><Text style={s.tournamentRuleText}>{String(r)}</Text></View>)}</View><View style={s.managerNotice}><Text style={s.managerNoticeTitle}>SEPARATE FROM LEAGUE STATISTICS</Text><Text style={s.managerNoticeText}>This manager-created tournament never changes regular-season standings, regular-season statistics, or official league tournament statistics.</Text></View></View>}</ScrollView>;}
+body=<ScrollView showsVerticalScrollIndicator={false}><View style={s.tournamentDetailHeader}><Pressable onPress={()=>setTab("Tournament")} hitSlop={10}><Text style={s.tournamentBack}>‹</Text></Pressable><View style={{flex:1}}><Text style={s.tournamentDetailTitle}>{String(mt.name||"Tournament")}</Text><Text style={s.tournamentDetailMeta}>{String(mt.start_label||mt.scheduled_label||mt.start_at||"")} • SINGLE ELIMINATION</Text></View></View><View style={s.tournamentTabs}>{["Matches","Bracket","Rules"].map(x=><Pressable key={x} style={[s.tournamentTabButton,managerTournamentTab===x&&s.tournamentTabButtonActive]} onPress={()=>setManagerTournamentTab(x)}><Text style={[s.tournamentTabText,managerTournamentTab===x&&s.tournamentTabTextActive]}>{x.toUpperCase()}</Text></Pressable>)}</View>{managerTournamentTab==="Matches"?<View><Text style={s.statsSection}>UPCOMING / ACTIVE MATCHES</Text>{matches.length?matches.map((m:any)=>{const p1=String(m?.player1_name||m?.player1||"TBD"),p2=String(m?.player2_name||m?.player2||"TBD");const mine=Number(m?.player1_id||0)===me||Number(m?.player2_id||0)===me;const done=isCompletedMatch(m);const key=String(m?.id||`${p1}-${p2}`);return <View key={key} style={s.matchCard}><View style={s.matchCardRow}><View style={s.matchCardInfo}><Text style={s.matchDivision}>{String(m?.round_label||m?.round_name||"TOURNAMENT MATCH").toUpperCase()}</Text><View style={s.matchPlayersLeft}><PlayerLink name={p1} playerId={Number(m?.player1_id||0)} textStyle={s.matchSelfName}/><Text style={s.vsLarge}> {done?`${m?.player1_legs??"–"} - ${m?.player2_legs??"–"}`:"VS"} </Text><PlayerLink name={p2} playerId={Number(m?.player2_id||0)} textStyle={s.matchSelfName}/></View><Text style={s.matchDateLeft}>{String(m?.scheduled_label||m?.scheduled_at||mt?.start_label||mt?.start_at||"")}</Text><Text style={s.matchMetaLeft}>Best of {m?.best_of||mt?.best_of||5} • {done?"Completed":"Single elimination"} • Does not affect league stats</Text></View>{mine&&!done?<Pressable style={[s.uploadResultsButton,!!matchUploadWorkingId&&{opacity:.55}]} disabled={!!matchUploadWorkingId} onPress={()=>pickManagerTournamentScreenshots(key)}><Text style={s.uploadResultsIcon}>＋</Text><Text style={s.uploadResultsText}>{(matchScreenshots[`t-${key}`]?.length||0)>0?"ADD MORE":"ADD"}</Text><Text style={s.uploadResultsText}>EVIDENCE</Text></Pressable>:null}</View>{mine&&!done?queuedEvidenceTray(`t-${key}`,()=>pickManagerTournamentScreenshots(key),()=>uploadQueuedManagerTournamentEvidence(key)):null}</View>}):<View style={s.emptyStateCard}><Text style={s.emptyStateTitle}>BRACKET NOT GENERATED YET</Text><Text style={s.emptyStateText}>The server will create the bracket after signup closes 10 minutes before the tournament starts.</Text></View>}</View>:managerTournamentTab==="Bracket"?<View><Text style={s.statsSection}>LIVE BRACKET</Text>{Object.keys(rounds).length?<RNScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.bracketScroll}>{Object.entries(rounds).map(([round,rows]:any)=><View key={round} style={s.bracketColumn}><Text style={s.bracketRoundTitle}>{String(round).toUpperCase()}</Text>{rows.map((m:any,i:number)=><View key={String(m?.id||i)} style={s.bracketMatch}><View style={{flexDirection:"row",alignItems:"center"}}><PlayerLink name={String(m?.player1_name||m?.player1||"TBD")} playerId={Number(m?.player1_id||0)} textStyle={s.bracketPlayer}/>{isCompletedMatch(m)?<Text style={s.bracketPlayer}> {String(m?.player1_legs??"")}</Text>:null}</View><View style={s.bracketDivider}/><View style={{flexDirection:"row",alignItems:"center"}}><PlayerLink name={String(m?.player2_name||m?.player2||"TBD")} playerId={Number(m?.player2_id||0)} textStyle={s.bracketPlayer}/>{isCompletedMatch(m)?<Text style={s.bracketPlayer}> {String(m?.player2_legs??"")}</Text>:null}</View></View>)}</View>)}</RNScrollView>:<View style={s.emptyStateCard}><Text style={s.emptyStateTitle}>BRACKET NOT GENERATED YET</Text><Text style={s.emptyStateText}>Confirmed entrants will be placed into the single-elimination bracket automatically when signup closes.</Text></View>}</View>:<View><Text style={s.statsSection}>TOURNAMENT RULES</Text><View style={s.tournamentRulesCard}>{ruleRows.map((r:any,i:number)=><View key={i} style={s.tournamentRuleRow}><Text style={s.tournamentRuleCheck}>✓</Text><Text style={s.tournamentRuleText}>{String(r)}</Text></View>)}</View><View style={s.managerNotice}><Text style={s.managerNoticeTitle}>SEPARATE FROM LEAGUE STATISTICS</Text><Text style={s.managerNoticeText}>This manager-created tournament never changes regular-season standings, regular-season statistics, or official league tournament statistics.</Text></View></View>}</ScrollView>;}
 else if(tab==="ManagerTournament"){body=<ScrollView showsVerticalScrollIndicator={false}><Pressable onPress={()=>setTab("Tournament")}><Text style={s.backLink}>‹ BACK TO TOURNAMENTS</Text></Pressable><Text style={s.title}>Tournament</Text><View style={s.emptyStateCard}><Text style={s.emptyStateTitle}>NO ACTIVE MANAGER-CREATED TOURNAMENT</Text><Text style={s.emptyStateText}>When the manager creates the next tournament, its named link will appear under the Tournament tab.</Text></View></ScrollView>;}
 else if(tab==="PlayerStats"&&selectedPlayer){
 const live=playerStandingByName(selectedPlayer);
@@ -1474,7 +1527,22 @@ matchMetaLeft:{color:"#8ea3b5",fontSize:11,marginTop:3},
 uploadResultsButton:{width:92,minHeight:92,borderRadius:12,backgroundColor:"rgba(18,107,214,.88)",borderWidth:1,borderColor:"rgba(120,180,255,.75)",alignItems:"center",justifyContent:"center",paddingHorizontal:6},
 uploadResultsIcon:{color:"#fff",fontSize:22,fontWeight:"900",marginBottom:2},
 uploadResultsText:{color:"#fff",fontSize:10,fontWeight:"900",letterSpacing:.5,lineHeight:13,textAlign:"center"},
-uploadReady:{color:"#59d98e",fontSize:9,fontWeight:"800",marginTop:7}
+uploadReady:{color:"#59d98e",fontSize:9,fontWeight:"800",marginTop:7},
+uploadQueued:{color:"#f2c94c",fontSize:9,fontWeight:"900",marginTop:5},
+evidenceTray:{marginTop:10,backgroundColor:"rgba(4,17,30,.94)",borderWidth:1,borderColor:"#31516d",borderRadius:12,padding:10},
+evidenceTrayHeader:{flexDirection:"row",alignItems:"center",justifyContent:"space-between"},
+evidenceTrayTitle:{color:"#f2c94c",fontSize:10,fontWeight:"900",letterSpacing:.6},
+evidenceClear:{color:"#ff7b84",fontSize:8,fontWeight:"900",padding:6},
+evidenceTrayHint:{color:"#91a8ba",fontSize:9,lineHeight:14,marginTop:4,marginBottom:7},
+evidenceQueueRow:{flexDirection:"row",alignItems:"center",gap:8,paddingVertical:6,borderTopWidth:1,borderTopColor:"rgba(255,255,255,.07)"},
+evidenceThumb:{width:42,height:42,borderRadius:6,backgroundColor:"#0d2032"},
+evidenceQueueName:{flex:1,color:"#dbe7ef",fontSize:9},
+evidenceRemove:{backgroundColor:"rgba(183,51,61,.25)",borderWidth:1,borderColor:"#8f3139",borderRadius:7,paddingHorizontal:8,paddingVertical:7},
+evidenceRemoveText:{color:"#ff9aa1",fontSize:7.5,fontWeight:"900"},
+evidenceTrayActions:{flexDirection:"row",gap:8,marginTop:8},
+evidenceAddMore:{flex:1,backgroundColor:"#20364e",borderWidth:1,borderColor:"#3b5871",borderRadius:9,paddingVertical:11,alignItems:"center"},
+evidenceUploadAll:{flex:1,backgroundColor:"#2774d8",borderRadius:9,paddingVertical:11,alignItems:"center"},
+evidenceActionText:{color:"#fff",fontSize:9,fontWeight:"900",letterSpacing:.4}
 ,
 playerNameAwardsRow:{flexDirection:"row",alignItems:"center",flexShrink:1,minWidth:0},
 awardsInline:{flexDirection:"row",alignItems:"center",marginLeft:4,flexShrink:0},
