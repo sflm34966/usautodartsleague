@@ -1,0 +1,10 @@
+US AutoDarts League App v0.7.30
+
+- My Stats now has LEAGUE STATS and TOURNAMENT STATS views.
+- Tournament Stats are separate from league/season/career statistics and include tournament record, averages, checkout data, scoring totals, and tournament history/breakdown.
+- Tournament stats read the v0.9.82 server tournament_stats / tournament_history payload.
+- Best Leg was removed from stats, profile summaries, home preview, bundled award catalog, and fallback rules text.
+- Checkout Made / Attempts are shown as made/attempts where detailed stats are displayed.
+- Match-facing/self display favors AutoDarts/league username (screenname). Real display name is shown on Player Profile when available.
+- Completed tournament delete warning now reflects full server cleanup of matches, evidence, OCR/review data, and tournament-only stats.
+- Preserves the existing v0.7.29 GUI, role-based tools, OTA workflow, swipe behavior, and Codemagic APK build configuration.

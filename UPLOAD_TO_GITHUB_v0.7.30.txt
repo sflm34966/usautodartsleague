@@ -1,0 +1,12 @@
+USADL App v0.7.30 - GitHub / Codemagic
+
+This ZIP is the complete project source.
+
+1. Extract the ZIP.
+2. Copy the CONTENTS of US_AutoDarts_League_Unified_v0.7.30 into the root of your existing app GitHub repository, replacing the older source files.
+3. Commit and push to GitHub.
+4. Run the existing Codemagic workflow: US AutoDarts League Android APK.
+
+The included codemagic.yaml is preserved and builds the release APK with Expo prebuild + Gradle.
+App version: 0.7.30
+Android versionCode: 100
