@@ -1,0 +1,10 @@
+US AutoDarts League App v0.7.31
+
+Other-player profile update:
+- Three-dot menu now works on profiles opened by clicking another player's screenname.
+- Added Tournament Stats option to that menu, separate from league stats.
+- Match History is now a working profile tab.
+- Removed Stat Details from the other-player profile.
+- Achievements now lists trophies/badges actually earned by that player and explains what each was awarded for.
+- Fixed other-player Time Zone display using the server player record.
+- Preserved v0.7.30 My Stats League/Tournament switch and all existing Codemagic/OTA configuration.

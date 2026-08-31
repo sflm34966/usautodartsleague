@@ -1,0 +1,14 @@
+USADL App v0.7.31 - GitHub / Codemagic
+
+This package is GitHub-ready source. It intentionally does NOT contain node_modules, android, ios, APK, or local Expo build folders.
+
+1. Extract the ZIP.
+2. Open the extracted folder.
+3. Upload/replace ALL contents in the root of the US AutoDarts League app GitHub repository.
+4. Commit the changes.
+5. Run the existing Codemagic workflow: "US AutoDarts League Android APK".
+
+The included codemagic.yaml runs npm install, Expo Android prebuild, then builds the release APK.
+
+Version: 0.7.31
+Android versionCode: 101
