@@ -48,6 +48,24 @@ async function apiRequest(path:string,options:any={}){
   }finally{clearTimeout(timeout);}
 }
 
+function confirmedUploadCount(data:any,expected:number){
+  const status=String(data?.upload_status||"").trim().toLowerCase();
+  const confirmed=data?.ok===true&&(status===""||status==="successful");
+  const received=Number(data?.received);
+  if(!confirmed){
+    const err:any=new Error(data?.message||data?.error||"Upload failed");
+    err.serverData=data;
+    throw err;
+  }
+  if(!Number.isFinite(received)||received!==expected){
+    const count=Number.isFinite(received)?received:0;
+    const err:any=new Error(`Server did not confirm all selected files (${count}/${expected}).`);
+    err.serverData=data;
+    throw err;
+  }
+  return received;
+}
+
 async function uploadMatchEvidence(matchId:string,assets:any[]){
   const token=runtimeAuthToken||await storage.getItemAsync("league_session");
   if(!token)throw new Error("You are not signed in.");
@@ -78,6 +96,7 @@ async function uploadMatchEvidence(matchId:string,assets:any[]){
     const err:any=new Error(data?.message||data?.error||`Server returned HTTP ${response.status}`);
     err.status=response.status;err.serverData=data;throw err;
   }
+  try{confirmedUploadCount(data,assets.length);}catch(e:any){e.status=response.status;e.serverData=data;throw e;}
   return data;
 }
 
@@ -915,24 +934,23 @@ const uploadQueuedMatchEvidence=async(matchId:string)=>{
   if(matchUploadWorkingId)return;
   let remaining=[...(matchScreenshots[matchId]||[])];
   if(!remaining.length){Alert.alert("Nothing queued","Add at least one screenshot or photo first.");return;}
-  const originalCount=remaining.length;
   let uploaded=0;
   setMatchUploadWorkingId(matchId);
   try{
     while(remaining.length){
       const batch=remaining.slice(0,10);
       const receipt=await uploadMatchEvidence(matchId,batch);
-      const received=Math.max(0,Number(receipt?.received||batch.length));
+      const received=confirmedUploadCount(receipt,batch.length);
       uploaded+=received;
       remaining=remaining.slice(batch.length);
       setMatchScreenshots(prev=>({...prev,[matchId]:remaining}));
     }
     await refreshServerData();
-    Alert.alert("Evidence uploaded",`${uploaded||originalCount} file${(uploaded||originalCount)===1?"":"s"} stored on the league server for Match #${matchId}. The server will combine all active, non-rejected evidence.`);
+    Alert.alert("Upload successful",`${uploaded} file${uploaded===1?"":"s"} confirmed by the league server for Match #${matchId}. OCR has been queued for the saved evidence.`);
   }catch(e:any){
     setMatchScreenshots(prev=>({...prev,[matchId]:remaining}));
     const message=String(e?.message||e||"Server request failed.");
-    Alert.alert(uploaded?"Upload partly completed":"Upload failed",uploaded?`${uploaded} file${uploaded===1?"":"s"} reached the server. ${remaining.length} remain queued and can be retried. ${message}`:message);
+    Alert.alert("Upload failed",uploaded?`${uploaded} file${uploaded===1?"":"s"} were already confirmed by the server. ${remaining.length} remain queued. No success is assumed for the unconfirmed batch. ${message}`:`No successful server confirmation was received. ${message}`);
   }finally{setMatchUploadWorkingId("");}
 };
 
@@ -948,7 +966,8 @@ async function uploadManagerTournamentEvidence(matchId:string,assets:any[]){
   }
   const response=await fetch(`${API_BASE_URL}/api/manager-tournament/matches/${encodeURIComponent(matchId)}/evidence`,{method:"POST",headers:{Accept:"application/json",Authorization:`Bearer ${token}`},body:form});
   let data:any=null;try{data=await response.json();}catch{}
-  if(!response.ok)throw new Error(data?.message||data?.error||`Server returned HTTP ${response.status}`);
+  if(!response.ok){const err:any=new Error(data?.message||data?.error||`Server returned HTTP ${response.status}`);err.status=response.status;err.serverData=data;throw err;}
+  try{confirmedUploadCount(data,assets.length);}catch(e:any){e.status=response.status;e.serverData=data;throw e;}
   return data;
 }
 
@@ -966,24 +985,23 @@ const uploadQueuedManagerTournamentEvidence=async(matchId:string)=>{
   if(matchUploadWorkingId)return;
   let remaining=[...(matchScreenshots[queueKey]||[])];
   if(!remaining.length){Alert.alert("Nothing queued","Add at least one screenshot or photo first.");return;}
-  const originalCount=remaining.length;
   let uploaded=0;
   setMatchUploadWorkingId(queueKey);
   try{
     while(remaining.length){
       const batch=remaining.slice(0,10);
       const data=await uploadManagerTournamentEvidence(matchId,batch);
-      const received=Math.max(0,Number(data?.received||batch.length));
+      const received=confirmedUploadCount(data,batch.length);
       uploaded+=received;
       remaining=remaining.slice(batch.length);
       setMatchScreenshots(prev=>({...prev,[queueKey]:remaining}));
     }
     await refreshManagerTournament();
-    Alert.alert("Tournament evidence uploaded",`${uploaded||originalCount} file${(uploaded||originalCount)===1?"":"s"} uploaded. The server will combine all active, non-rejected evidence for this match.`);
+    Alert.alert("Upload successful",`${uploaded} file${uploaded===1?"":"s"} confirmed by the league server for this tournament match. OCR has been queued for the saved evidence.`);
   }catch(e:any){
     setMatchScreenshots(prev=>({...prev,[queueKey]:remaining}));
     const message=String(e?.message||e||"Upload failed.");
-    Alert.alert(uploaded?"Upload partly completed":"Tournament upload failed",uploaded?`${uploaded} file${uploaded===1?"":"s"} reached the server. ${remaining.length} remain queued and can be retried. ${message}`:message);
+    Alert.alert("Upload failed",uploaded?`${uploaded} file${uploaded===1?"":"s"} were already confirmed by the server. ${remaining.length} remain queued. No success is assumed for the unconfirmed batch. ${message}`:`No successful server confirmation was received. ${message}`);
   }finally{setMatchUploadWorkingId("");}
 };
 
